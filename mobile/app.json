@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "IIEST E-Gate Pass",
+    "slug": "iiest-egatepass",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0A0E21"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ac.in.iiest.egatepass",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app requires camera access to capture visitor photos and scan QR codes.",
+        "NSPhotoLibraryUsageDescription": "This app requires photo library access to select visitor photos."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0E21"
+      },
+      "package": "ac.in.iiest.egatepass",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow IIEST E-Gate Pass to access your camera to capture visitor photos and scan QR codes."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow IIEST E-Gate Pass to access your photos."
+        }
+      ],
+      "expo-asset"
+    ]
+  }
+}
