@@ -3,7 +3,7 @@
  * 
  * Supports two modes:
  * 1. Flow API (production) — uses MSG91 Flow templates, requires MSG91_FLOW_ID
- * 2. Direct Send API (fallback) — uses older sendhttp.php, works for testing
+ * 2. Send SMS API v5 (fallback) — uses modern MSG91 v5 API for direct SMS
  * 
  * Set SMS_ENABLED=true and MSG91_AUTH_KEY in .env to activate.
  * When disabled, SMS calls silently succeed with a log message.
@@ -56,28 +56,45 @@ async function sendViaFlowAPI(phone, variables) {
 }
 
 /**
- * Send SMS via MSG91 Direct Send API (Fallback)
+ * Send SMS via MSG91 v5 Send API (Modern — replaces deprecated sendhttp.php)
  */
 async function sendViaSendAPI(phone, message) {
-  const params = {
-    authkey: MSG91_AUTH_KEY,
-    mobiles: phone,
-    message: message,
+  const payload = {
     sender: MSG91_SENDER_ID,
     route: MSG91_ROUTE,
     country: '91',
+    sms: [
+      {
+        message: message,
+        to: [phone],
+      },
+    ],
   };
 
   if (MSG91_DLT_TE_ID) {
-    params.DLT_TE_ID = MSG91_DLT_TE_ID;
+    payload.DLT_TE_ID = MSG91_DLT_TE_ID;
   }
 
-  const response = await axios.get('https://api.msg91.com/api/sendhttp.php', {
-    params,
-    timeout: 15000,
-  });
-
-  return response.data;
+  try {
+    // Modern v5 Send SMS API (correct endpoint, NOT the flow endpoint)
+    const response = await axios.post(
+      'https://control.msg91.com/api/v5/sms/send/',
+      payload,
+      {
+        headers: {
+          'authkey': MSG91_AUTH_KEY,
+          'Content-Type': 'application/json',
+        },
+        timeout: 15000,
+      }
+    );
+    return response.data;
+  } catch (apiError) {
+    // Log the actual error details for debugging
+    const errDetail = apiError.response?.data || apiError.message;
+    console.error('📱 MSG91 Send API error:', typeof errDetail === 'string' ? errDetail : JSON.stringify(errDetail));
+    throw apiError; // Re-throw so callers can handle it
+  }
 }
 
 /**
@@ -93,7 +110,7 @@ async function sendPassSMS(phone, passCode, visitorName) {
 
   if (!SMS_ENABLED) {
     console.log(`📱 SMS disabled — would send to ${phone}: ${passUrl}`);
-    return { success: true, message: 'SMS disabled — skipped' };
+    return { success: true, message: 'SMS disabled — skipped', passUrl };
   }
 
   if (!MSG91_AUTH_KEY) {
@@ -103,6 +120,7 @@ async function sendPassSMS(phone, passCode, visitorName) {
 
   const normalizedPhone = normalizePhone(phone);
   console.log(`📱 Sending gate pass SMS to ${normalizedPhone}...`);
+  console.log(`📱 Pass URL: ${passUrl}`);
 
   try {
     let responseData;
@@ -124,15 +142,15 @@ async function sendPassSMS(phone, passCode, visitorName) {
 
     if (resStr && !resStr.toLowerCase().includes('error')) {
       console.log(`✅ SMS sent successfully to ${phone}: ${passUrl}`);
-      return { success: true, message: 'SMS sent successfully', requestId: resStr };
+      return { success: true, message: 'SMS sent successfully', requestId: resStr, passUrl };
     } else {
       console.error(`❌ SMS API returned error for ${phone}: ${resStr}`);
-      return { success: false, message: `MSG91 error: ${resStr}` };
+      return { success: false, message: `MSG91 error: ${resStr}`, passUrl };
     }
   } catch (error) {
     const errMsg = error.response?.data || error.message;
     console.error(`❌ SMS failed for ${phone}:`, errMsg);
-    return { success: false, message: typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg) };
+    return { success: false, message: typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg), passUrl };
   }
 }
 
@@ -208,10 +226,13 @@ async function sendNotificationSMS(phone, message) {
   }
 
   const normalizedPhone = normalizePhone(phone);
+  console.log(`📱 Sending notification SMS to ${normalizedPhone}...`);
 
   try {
     const responseData = await sendViaSendAPI(normalizedPhone, message);
     const resStr = typeof responseData === 'string' ? responseData : JSON.stringify(responseData);
+
+    console.log(`📱 Notification SMS response: ${resStr}`);
 
     if (resStr && !resStr.toLowerCase().includes('error')) {
       console.log(`✅ Notification SMS sent to ${phone}`);

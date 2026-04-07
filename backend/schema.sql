@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
     profile_photo   TEXT,
     push_token      TEXT,
     gate_assigned   VARCHAR(100),
+    employee_id     VARCHAR(100),
     -- Staff availability (v4)
     availability    VARCHAR(20) DEFAULT 'available'
                     CHECK (availability IN ('available', 'in_meeting', 'on_leave', 'unavailable')),

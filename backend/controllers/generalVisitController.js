@@ -1,6 +1,9 @@
 const pool = require('../config/db');
+const { generatePassCode, generateQRCode } = require('../utils/qrGenerator');
+const { sendPassSMS } = require('../utils/smsService');
 
 // Create general visit (Guard) — no approval needed
+// Auto-generates gate pass + sends SMS to visitor immediately
 exports.createGeneralVisit = async (req, res, next) => {
   try {
     const { visitor_name, visitor_phone, purpose, purpose_detail, validity_hours = 2, vehicle_number, vehicle_type } = req.body;
@@ -38,12 +41,54 @@ exports.createGeneralVisit = async (req, res, next) => {
       [visitor.id, guard_id, purpose, purpose_detail, valid_until, vehicle_number || null, vehicle_type || 'none']
     );
 
+    const generalVisit = result.rows[0];
+
+    // ===== AUTO-GENERATE GATE PASS + SEND SMS =====
+    let gatePass = null;
+    let smsStatus = null;
+    try {
+      const pass_code = generatePassCode();
+      const qrPayload = {
+        pass_code,
+        visitor_name: visitor_name || visitor.full_name,
+        visitor_phone: visitor_phone || visitor.phone,
+        visit_type: 'general',
+        purpose: purpose,
+        valid_until: valid_until.toISOString(),
+      };
+      const qr_data = await generateQRCode(qrPayload);
+
+      const passResult = await pool.query(
+        `INSERT INTO gate_passes (pass_code, general_visit_id, visitor_id, generated_by, qr_data, status, valid_until)
+         VALUES ($1, $2, $3, $4, $5, 'active', $6) RETURNING *`,
+        [pass_code, generalVisit.id, visitor.id, guard_id, qr_data, valid_until]
+      );
+      gatePass = passResult.rows[0];
+
+      // Send SMS with pass link to visitor
+      try {
+        const smsResult = await sendPassSMS(visitor_phone || visitor.phone, pass_code, visitor_name || visitor.full_name);
+        smsStatus = smsResult;
+        if (smsResult.success) {
+          await pool.query('UPDATE gate_passes SET sms_sent = true, sms_sent_at = NOW() WHERE id = $1', [gatePass.id]);
+        }
+        console.log(`📱 General visit SMS result for ${visitor_phone}: ${smsResult.success ? '✅ sent' : '❌ ' + smsResult.message}`);
+      } catch (smsErr) {
+        console.log('SMS send error on general visit (non-fatal):', smsErr.message);
+        smsStatus = { success: false, message: smsErr.message };
+      }
+    } catch (passErr) {
+      console.log('Auto gate pass generation error (non-fatal):', passErr.message);
+    }
+
     res.status(201).json({
       success: true,
-      message: 'General visit pass created',
+      message: gatePass ? 'General visit pass created with QR code' : 'General visit pass created',
       data: {
-        general_visit: result.rows[0],
+        general_visit: generalVisit,
         visitor,
+        gate_pass: gatePass,
+        sms_status: smsStatus,
       },
     });
   } catch (error) {

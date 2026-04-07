@@ -3,11 +3,35 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
+const fs = require('fs');
 const cron = require('node-cron');
 require('dotenv').config();
 
 const pool = require('./config/db');
 const errorHandler = require('./middleware/errorHandler');
+
+// Auto-create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('📁 Created uploads directory');
+}
+
+// Auto-run schema on startup (all statements are CREATE IF NOT EXISTS — safe to run repeatedly)
+(async () => {
+  try {
+    const schemaSQL = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+    await pool.query(schemaSQL);
+    console.log('✅ Database schema verified');
+
+    // Auto-add employee_id column if missing (migration for existing databases)
+    try {
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id VARCHAR(100)`);
+    } catch (e) { /* column already exists or not supported — ignore */ }
+  } catch (error) {
+    console.error('⚠️ Schema init warning:', error.message);
+  }
+})();
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -36,6 +60,30 @@ app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'IIEST E-Gate Pass API is running 🚀', timestamp: new Date().toISOString() });
 });
 
+// Test SMS endpoint — for verifying SMS delivery
+app.post('/api/test-sms', async (req, res) => {
+  try {
+    const { phone, message } = req.body;
+    if (!phone) {
+      return res.status(400).json({ success: false, message: 'Phone number is required' });
+    }
+    const { sendPassSMS, sendNotificationSMS } = require('./utils/smsService');
+    const testMessage = message || 'Hello from IIEST E-Gate Pass System! This is a test SMS. If you received this, SMS is working correctly.';
+    
+    // Try sending via pass SMS (which generates a pass URL) or notification SMS
+    const result = await sendNotificationSMS(phone, testMessage);
+    console.log('📱 Test SMS result:', JSON.stringify(result));
+    
+    res.json({
+      success: result.success,
+      message: result.success ? `Test SMS sent to ${phone}` : `SMS failed: ${result.message}`,
+      data: result,
+    });
+  } catch (error) {
+    console.error('Test SMS error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 app.use('/api/auth', authRoutes);
 app.use('/api/visits', visitRoutes);
