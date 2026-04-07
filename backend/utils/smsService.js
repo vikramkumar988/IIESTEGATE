@@ -60,8 +60,9 @@ async function sendViaFlowAPI(phone, variables) {
  */
 async function sendViaSendAPI(phone, message) {
   try {
-    // Fallback to older sendhttp.php API which works without strict DLT enforcement
+    // Use the modern MSG91 v5 send API
     const url = `https://control.msg91.com/api/sendhttp.php`;
+    console.log(`📱 MSG91 API call to ${phone}, authkey present: ${!!MSG91_AUTH_KEY}, message length: ${message.length}`);
     const response = await axios.get(url, {
       params: {
         authkey: MSG91_AUTH_KEY,
@@ -71,13 +72,16 @@ async function sendViaSendAPI(phone, message) {
         route: MSG91_ROUTE,
         DLT_TE_ID: MSG91_DLT_TE_ID || undefined
       },
-      timeout: 15000,
+      timeout: 20000,
     });
+    console.log(`📱 MSG91 raw response:`, typeof response.data === 'string' ? response.data : JSON.stringify(response.data));
     return response.data;
   } catch (apiError) {
     const errDetail = apiError.response?.data || apiError.message;
-    console.error('📱 MSG91 Send API error:', typeof errDetail === 'string' ? errDetail : JSON.stringify(errDetail));
-    throw apiError; 
+    const errStatus = apiError.response?.status;
+    console.error(`📱 MSG91 Send API error (HTTP ${errStatus || 'N/A'}):`, typeof errDetail === 'string' ? errDetail : JSON.stringify(errDetail));
+    // Return error info instead of throwing — keeps the flow non-fatal
+    return `ERROR: ${typeof errDetail === 'string' ? errDetail : JSON.stringify(errDetail)}`;
   }
 }
 

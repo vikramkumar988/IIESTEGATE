@@ -115,7 +115,7 @@ exports.renderFormPage = async (req, res) => {
               <label for="cameraInput" class="photo-btn">📸 Camera</label>
               <label for="galleryInput" class="photo-btn">🖼️ Gallery</label>
             </div>
-            <input type="file" accept="image/*" class="hidden-input" id="cameraInput">
+            <input type="file" accept="image/*" capture="user" class="hidden-input" id="cameraInput">
             <input type="file" accept="image/jpeg,image/png,image/webp,image/*" class="hidden-input" id="galleryInput">
           </div>
           <div class="form-row">

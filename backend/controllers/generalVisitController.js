@@ -96,22 +96,30 @@ exports.createGeneralVisit = async (req, res, next) => {
   }
 };
 
-// Get all general visits
+// Get all general visits (with gate pass data for SMS/QR actions)
 exports.getGeneralVisits = async (req, res, next) => {
   try {
     const { status, date_from, date_to, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
     let query = `
       SELECT gv.*, v.full_name as visitor_name, v.phone as visitor_phone, v.photo_url as visitor_photo,
-          g.full_name as guard_name
+          g.full_name as guard_name,
+          gp.id as gate_pass_id, gp.pass_code, gp.sms_sent, gp.entry_time, gp.exit_time,
+          gp.status as pass_status, gp.valid_until as pass_valid_until
       FROM general_visits gv
       JOIN visitors v ON gv.visitor_id = v.id
       JOIN users g ON gv.guard_id = g.id
+      LEFT JOIN (
+        SELECT DISTINCT ON (general_visit_id) *
+        FROM gate_passes
+        WHERE general_visit_id IS NOT NULL
+        ORDER BY general_visit_id, created_at DESC
+      ) gp ON gp.general_visit_id = gv.id
     `;
     const params = [];
     const conditions = [];
 
-    // Removed the req.user.role === 'guard' restriction to let ALL guards view ALL general visitors
+    // All guards see all general visitors campus-wide
 
     if (status) {
       conditions.push(`gv.status = $${params.length + 1}`);

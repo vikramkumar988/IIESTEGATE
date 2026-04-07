@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, RefreshControl, Image, Alert, TouchableOpacity, Linking } from 'react-native';
+import { View, Text, StyleSheet, FlatList, RefreshControl, Image, Alert, TouchableOpacity, Linking, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, Badge, Header, EmptyState, LoadingScreen, Button } from '../../components';
 import { visitService, generalVisitService, gatePassService, getBaseUrl } from '../../services/api';
@@ -101,9 +101,17 @@ export default function GuardHistory({ navigation }) {
   useEffect(() => { setLoading(true); loadData(); }, [loadData]);
   useEffect(() => { const u = navigation.addListener('focus', loadData); return u; }, [navigation, loadData]);
 
-  const generateQR = async (visitId) => {
+  // Generate QR — detects professor vs general visit and uses correct endpoint
+  const generateQR = async (visit) => {
     try {
-      const res = await gatePassService.generate(visitId);
+      let res;
+      if (typeTab === 'general') {
+        // General visit — use generateGeneral endpoint
+        res = await gatePassService.generateGeneral(visit.id);
+      } else {
+        // Professor visit — use standard generate endpoint
+        res = await gatePassService.generate(visit.id);
+      }
       const pass = res.data?.data?.gate_pass;
       if (pass) navigation.navigate('GenerateQR', { pass });
     } catch (error) {
@@ -111,13 +119,28 @@ export default function GuardHistory({ navigation }) {
     }
   };
 
-  const handleSendSMS = async (visitId) => {
+  // Send SMS — uses gate_pass_id from API when available, otherwise generates first
+  const handleSendSMS = async (visit) => {
     try {
-      const passRes = await gatePassService.generate(visitId);
-      const pass = passRes.data?.data?.gate_pass;
-      if (pass) {
-        const smsRes = await gatePassService.sendSMS(pass.id);
+      let passId = visit.gate_pass_id; // From the API response (general visits)
+      
+      if (!passId) {
+        // Need to generate/get the pass first
+        let passRes;
+        if (typeTab === 'general') {
+          passRes = await gatePassService.generateGeneral(visit.id);
+        } else {
+          passRes = await gatePassService.generate(visit.id);
+        }
+        const pass = passRes.data?.data?.gate_pass;
+        passId = pass?.id;
+      }
+
+      if (passId) {
+        const smsRes = await gatePassService.sendSMS(passId);
         Alert.alert(smsRes.data?.success ? '✅ SMS Sent' : '⚠️ SMS Failed', smsRes.data?.message || 'Check SMS service');
+      } else {
+        Alert.alert('Error', 'No gate pass found for this visit');
       }
     } catch (error) {
       Alert.alert('Error', error.response?.data?.message || 'Failed to send SMS');
@@ -279,11 +302,11 @@ export default function GuardHistory({ navigation }) {
                   </Text>
                 )}
                 <View style={styles.approvedActions}>
-                  <TouchableOpacity style={styles.qrBtn} onPress={() => generateQR(v.id)}>
+                  <TouchableOpacity style={styles.qrBtn} onPress={() => generateQR(v)}>
                     <Ionicons name="qr-code" size={14} color={Colors.success} />
                     <Text style={[styles.qrBtnText, { color: Colors.success }]}>View QR</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.smsBtn} onPress={() => handleSendSMS(v.id)}>
+                  <TouchableOpacity style={styles.smsBtn} onPress={() => handleSendSMS(v)}>
                     <Ionicons name="chatbubble-outline" size={14} color="#a78bfa" />
                     <Text style={[styles.qrBtnText, { color: '#a78bfa' }]}>Send SMS</Text>
                   </TouchableOpacity>
