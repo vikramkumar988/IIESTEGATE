@@ -59,41 +59,26 @@ async function sendViaFlowAPI(phone, variables) {
  * Send SMS via MSG91 v5 Send API (Modern — replaces deprecated sendhttp.php)
  */
 async function sendViaSendAPI(phone, message) {
-  const payload = {
-    sender: MSG91_SENDER_ID,
-    route: MSG91_ROUTE,
-    country: '91',
-    sms: [
-      {
-        message: message,
-        to: [phone],
-      },
-    ],
-  };
-
-  if (MSG91_DLT_TE_ID) {
-    payload.DLT_TE_ID = MSG91_DLT_TE_ID;
-  }
-
   try {
-    // Modern v5 Send SMS API (correct endpoint, NOT the flow endpoint)
-    const response = await axios.post(
-      'https://control.msg91.com/api/v5/sms/send/',
-      payload,
-      {
-        headers: {
-          'authkey': MSG91_AUTH_KEY,
-          'Content-Type': 'application/json',
-        },
-        timeout: 15000,
-      }
-    );
+    // Fallback to older sendhttp.php API which works without strict DLT enforcement
+    const url = `https://control.msg91.com/api/sendhttp.php`;
+    const response = await axios.get(url, {
+      params: {
+        authkey: MSG91_AUTH_KEY,
+        mobiles: phone,
+        message: message,
+        sender: MSG91_SENDER_ID,
+        route: MSG91_ROUTE,
+        country: '91',
+        DLT_TE_ID: MSG91_DLT_TE_ID || undefined
+      },
+      timeout: 15000,
+    });
     return response.data;
   } catch (apiError) {
-    // Log the actual error details for debugging
     const errDetail = apiError.response?.data || apiError.message;
     console.error('📱 MSG91 Send API error:', typeof errDetail === 'string' ? errDetail : JSON.stringify(errDetail));
-    throw apiError; // Re-throw so callers can handle it
+    throw apiError; 
   }
 }
 
