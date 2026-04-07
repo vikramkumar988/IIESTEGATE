@@ -42,6 +42,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const userRoutes = require('./routes/userRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const preRegRoutes = require('./routes/preRegRoutes');
+const testSmtpRoute = require('./routes/testSmtpRoute');
 
 const app = express();
 
@@ -93,6 +94,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/pre-register', preRegRoutes);
+app.use('/api/test-smtp', testSmtpRoute);
 
 // Public pass page (no auth — visitor accesses via SMS link)
 const publicPassController = require('./controllers/publicPassController');
