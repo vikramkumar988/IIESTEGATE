@@ -69,7 +69,6 @@ async function sendViaSendAPI(phone, message) {
         message: message,
         sender: MSG91_SENDER_ID,
         route: MSG91_ROUTE,
-        country: '91',
         DLT_TE_ID: MSG91_DLT_TE_ID || undefined
       },
       timeout: 15000,
