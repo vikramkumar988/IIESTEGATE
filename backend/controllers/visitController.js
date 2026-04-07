@@ -651,14 +651,14 @@ exports.getStaffHistory = async (req, res, next) => {
       query += ` AND vr.status != 'pending'`;
     }
 
-    // Date filters — filter on updated_at so "approved today" returns correctly
+    // Date filters — IST timezone-aware to match Indian dates accurately
     if (date_from) {
       params.push(date_from);
-      query += ` AND vr.updated_at >= $${params.length}::date`;
+      query += ` AND (vr.updated_at AT TIME ZONE 'Asia/Kolkata')::date >= $${params.length}::date`;
     }
     if (date_to) {
       params.push(date_to);
-      query += ` AND vr.updated_at < ($${params.length}::date + interval '1 day')`;
+      query += ` AND (vr.updated_at AT TIME ZONE 'Asia/Kolkata')::date <= $${params.length}::date`;
     }
 
     // ORDER BY updated_at so recently-acted-upon requests come first
@@ -683,11 +683,11 @@ exports.getStaffHistory = async (req, res, next) => {
 
     if (date_from) {
       countParams.push(date_from);
-      countsQuery += ` AND vr.updated_at >= $${countParams.length}::date`;
+      countsQuery += ` AND (vr.updated_at AT TIME ZONE 'Asia/Kolkata')::date >= $${countParams.length}::date`;
     }
     if (date_to) {
       countParams.push(date_to);
-      countsQuery += ` AND vr.updated_at < ($${countParams.length}::date + interval '1 day')`;
+      countsQuery += ` AND (vr.updated_at AT TIME ZONE 'Asia/Kolkata')::date <= $${countParams.length}::date`;
     }
 
     const countsResult = await pool.query(countsQuery, countParams);
