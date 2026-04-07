@@ -37,6 +37,22 @@ function formatResponseTime(minutes) {
   return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
 }
 
+function safeDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function safeTime(value, fallback = '—') {
+  const d = safeDate(value);
+  return d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : fallback;
+}
+
+function safeDateLabel(value, fallback = '—') {
+  const d = safeDate(value);
+  return d ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : fallback;
+}
+
 export default function StaffDashboard({ navigation }) {
   const { user } = useAuth();
   const [stats, setStats] = useState({ pending: 0, approvedToday: 0, rejectedToday: 0, preVisits: 0, avgResponseTime: null });
@@ -150,7 +166,9 @@ export default function StaffDashboard({ navigation }) {
 
   // Cleanup sound on unmount
   useEffect(() => {
-    return () => { if (soundRef.current) soundRef.current.unloadAsync(); };
+    return () => {
+      if (soundRef.current?.unloadAsync) soundRef.current.unloadAsync();
+    };
   }, []);
 
   const handleQuickApprove = async (requestId) => {
@@ -334,9 +352,9 @@ export default function StaffDashboard({ navigation }) {
         </View>
 
         <View style={styles.listSection}>
-          {tabData.length === 0 ? (
+          {tabData.length === 0 && activeTab !== 'pre_visits' ? (
             <EmptyState icon={activeTab === 'pending' ? 'cafe-outline' : 'calendar-outline'} title={activeTab === 'pending' ? "Coffee break?" : "No records today"} message={activeTab === 'pending' ? "All requests have been handled." : "Requests will appear here as they come."} compact />
-          ) : (
+          ) : activeTab !== 'pre_visits' ? (
             tabData.slice(0, 15).map((request, reqIndex) => (
               <Card key={`req-${request.id}-${reqIndex}`} style={[styles.requestCard, request.status === 'pending' && styles.requestCardPending]} onPress={() => navigation.navigate('RequestDetail', { requestId: request.id })}>
                 <View style={styles.requestRow}>
@@ -360,7 +378,7 @@ export default function StaffDashboard({ navigation }) {
                         <Ionicons name="call-outline" size={11} color={Colors.textMuted} />
                         <Text style={styles.visitorMeta}>{request.visitor_phone}</Text>
                         {/* Quick dial */}
-                        <TouchableOpacity onPress={() => Linking.openURL(`tel:${request.visitor_phone}`)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <TouchableOpacity onPress={() => request.visitor_phone && Linking.openURL(`tel:${request.visitor_phone}`)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                           <Ionicons name="call" size={13} color={Colors.primary} />
                         </TouchableOpacity>
                       </View>
@@ -376,7 +394,7 @@ export default function StaffDashboard({ navigation }) {
                   </View>
                   <View style={styles.statusSection}>
                     <Badge text={request.status} variant={request.status === 'pending' ? 'warning' : request.status === 'approved' ? 'success' : 'danger'} size="sm" />
-                    <Text style={styles.timeText}>{new Date(request.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                    <Text style={styles.timeText}>{safeTime(request.created_at)}</Text>
                     {/* Response time */}
                     {request.response_time_minutes != null && (
                       <View style={styles.responseTimePill}>
@@ -421,10 +439,13 @@ export default function StaffDashboard({ navigation }) {
                 )}
               </Card>
             ))
-          )}
+          ) : null}
 
           {/* Pre-Visit cards */}
-          {activeTab === 'pre_visits' && tabData.length > 0 && tabData.map((preReg, preIndex) => (
+          {activeTab === 'pre_visits' && preVisitData.length === 0 && (
+            <EmptyState icon="calendar-outline" title="No pre-visit requests" message="Pre-visit requests from visitors will appear here." compact />
+          )}
+          {activeTab === 'pre_visits' && preVisitData.length > 0 && preVisitData.map((preReg, preIndex) => (
             <Card key={`prereg-${preReg.id}-${preIndex}`} style={[styles.requestCard, styles.requestCardPending, { borderLeftColor: '#a78bfa' }]}>
               <View style={styles.requestRow}>
                 <View style={styles.userSection}>
@@ -449,7 +470,7 @@ export default function StaffDashboard({ navigation }) {
                     <View style={[styles.metaRow, { marginTop: 6 }]}>
                       <Ionicons name="calendar-outline" size={11} color="#a78bfa" />
                       <Text style={[styles.visitorMeta, { color: '#a78bfa', fontWeight: '700' }]}>
-                        📅 {new Date(preReg.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}{preReg.scheduled_time ? ` at ${preReg.scheduled_time}` : ''}
+                        📅 {safeDateLabel(preReg.scheduled_date)}{preReg.scheduled_time ? ` at ${preReg.scheduled_time}` : ''}
                       </Text>
                     </View>
                   </View>

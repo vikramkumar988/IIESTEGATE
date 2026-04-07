@@ -64,6 +64,22 @@ function formatResponseTime(minutes) {
   return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
 }
 
+function safeDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function safeDateTime(value, fallback = '—') {
+  const d = safeDate(value);
+  return d ? d.toLocaleString('en-IN') : fallback;
+}
+
+function safeTime(value, fallback = '—') {
+  const d = safeDate(value);
+  return d ? d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : fallback;
+}
+
 export default function GuardHistory({ navigation }) {
   const [visits, setVisits] = useState([]);
   const [summary, setSummary] = useState({});
@@ -154,7 +170,8 @@ export default function GuardHistory({ navigation }) {
 
   // Group visits by date for section headers
   const getDateLabel = (dateStr) => {
-    const d = new Date(dateStr);
+    const d = safeDate(dateStr);
+    if (!d) return 'Unknown Date';
     const today = new Date();
     const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
     if (d.toDateString() === today.toDateString()) return 'Today';
@@ -220,7 +237,7 @@ export default function GuardHistory({ navigation }) {
             <View style={styles.phoneLine}>
               <Ionicons name="call-outline" size={12} color={Colors.textMuted} />
               <Text style={styles.meta}>{v.visitor_phone}</Text>
-              <TouchableOpacity onPress={() => Linking.openURL(`tel:${v.visitor_phone}`)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <TouchableOpacity onPress={() => v.visitor_phone && Linking.openURL(`tel:${v.visitor_phone}`)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Ionicons name="call" size={14} color={Colors.primary} />
               </TouchableOpacity>
             </View>
@@ -230,7 +247,7 @@ export default function GuardHistory({ navigation }) {
             <Text style={styles.meta}>📋 {v.purpose}</Text>
             {/* Show which guard created it */}
             {v.guard_name && <Text style={styles.guardMeta}>🛡️ Guard: {v.guard_name}</Text>}
-            <Text style={styles.time}>{new Date(v.created_at).toLocaleString('en-IN')}</Text>
+            <Text style={styles.time}>{safeDateTime(v.created_at)}</Text>
 
             {/* Response time */}
             {v.response_time_minutes != null && (
@@ -298,7 +315,7 @@ export default function GuardHistory({ navigation }) {
                 )}
                 {v.valid_until && (
                   <Text style={[styles.validityInfo, { color: new Date(v.valid_until) < new Date() ? '#ef4444' : '#22c55e' }]}>
-                    {new Date(v.valid_until) < new Date() ? '⏰ Expired' : '🕐 Valid until'} {new Date(v.valid_until).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(v.valid_until) < new Date() ? '⏰ Expired' : '🕐 Valid until'} {safeTime(v.valid_until)}
                   </Text>
                 )}
                 <View style={styles.approvedActions}>
