@@ -2,8 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, RefreshControl, Image, Alert, TouchableOpacity, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, Badge, Header, EmptyState, LoadingScreen, Button } from '../../components';
-import { visitService, gatePassService, getBaseUrl } from '../../services/api';
+import { visitService, generalVisitService, gatePassService, getBaseUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+
+const TYPE_TABS = [
+  { key: 'professor', label: 'Professor Visits', icon: 'school' },
+  { key: 'general', label: 'General Visits', icon: 'people' },
+];
 
 const STATUS_TABS = [
   { key: 'all', label: 'All' },
@@ -66,6 +71,7 @@ export default function GuardHistory({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
   const [dateFilter, setDateFilter] = useState('today');
+  const [typeTab, setTypeTab] = useState('professor');
 
   const loadData = useCallback(async () => {
     try {
@@ -73,12 +79,24 @@ export default function GuardHistory({ navigation }) {
       const params = { limit: 100, ...dateRange };
       if (activeTab !== 'all') params.status = activeTab;
 
-      const res = await visitService.guardHistory(params);
-      setVisits(res.data?.data?.visits || []);
-      setSummary(res.data?.data?.summary || {});
+      if (typeTab === 'professor') {
+        const res = await visitService.guardHistory(params);
+        setVisits(res.data?.data?.visits || []);
+        setSummary(res.data?.data?.summary || {});
+      } else {
+        const res = await generalVisitService.getAll(params);
+        const gVisits = res.data?.data?.visits || [];
+        setVisits(gVisits);
+        setSummary({
+          total: gVisits.length,
+          approved: gVisits.filter(v => v.status === 'approved' || v.status === 'entered').length,
+          rejected: gVisits.filter(v => v.status === 'rejected' || v.status === 'revoked').length,
+          pending: gVisits.filter(v => v.status === 'pending').length,
+        });
+      }
     } catch (e) { console.log('GuardHistory error:', e); }
     finally { setLoading(false); setRefreshing(false); }
-  }, [activeTab, dateFilter]);
+  }, [activeTab, dateFilter, typeTab]);
 
   useEffect(() => { setLoading(true); loadData(); }, [loadData]);
   useEffect(() => { const u = navigation.addListener('focus', loadData); return u; }, [navigation, loadData]);
@@ -184,7 +202,8 @@ export default function GuardHistory({ navigation }) {
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.meta}>🎓 To: {v.staff_name} {v.staff_department ? `(${v.staff_department})` : ''}</Text>
+            {!v.staff_name && v.purpose_detail && <Text style={styles.meta}>🏷️ Details: {v.purpose_detail}</Text>}
+            {v.staff_name && <Text style={styles.meta}>🎓 To: {v.staff_name} {v.staff_department ? `(${v.staff_department})` : ''}</Text>}
             <Text style={styles.meta}>📋 {v.purpose}</Text>
             {/* Show which guard created it */}
             {v.guard_name && <Text style={styles.guardMeta}>🛡️ Guard: {v.guard_name}</Text>}
@@ -310,6 +329,17 @@ export default function GuardHistory({ navigation }) {
     <View style={styles.container}>
       <Header title="All Requests" />
 
+      {/* Type Tabs */}
+      <View style={styles.typeRow}>
+        {TYPE_TABS.map((tab) => (
+          <TouchableOpacity key={tab.key} style={[styles.typeTab, typeTab === tab.key && styles.typeTabActive]}
+            onPress={() => setTypeTab(tab.key)}>
+            <Ionicons name={tab.icon} size={16} color={typeTab === tab.key ? Colors.primary : Colors.textMuted} />
+            <Text style={[styles.typeText, typeTab === tab.key && styles.typeTextActive]}>{tab.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       {/* Summary Stats */}
       <View style={styles.summaryRow}>
         <View style={[styles.summaryChip, { borderColor: Colors.primary }]}>
@@ -345,13 +375,13 @@ export default function GuardHistory({ navigation }) {
 
       {/* Status Tabs — use ScrollView instead of FlatList to avoid VirtualizedList nesting */}
       <View style={styles.tabBar}>
-        <View style={styles.tabScroll}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
           {STATUS_TABS.map((tab) => (
             <TouchableOpacity key={tab.key} style={[styles.tab, activeTab === tab.key && styles.tabActive]} onPress={() => setActiveTab(tab.key)}>
               <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
       </View>
 
       <FlatList
@@ -377,6 +407,12 @@ export default function GuardHistory({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scrollContent: { padding: Spacing.base, paddingBottom: 40 },
+
+  typeRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: Colors.border },
+  typeTab: { flex: 1, paddingVertical: Spacing.md, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  typeTabActive: { borderBottomColor: Colors.primary },
+  typeText: { color: Colors.textMuted, fontSize: FontSizes.sm, fontWeight: '600' },
+  typeTextActive: { color: Colors.primary },
 
   // Summary row
   summaryRow: { flexDirection: 'row', paddingHorizontal: Spacing.base, paddingTop: Spacing.sm, gap: 8 },

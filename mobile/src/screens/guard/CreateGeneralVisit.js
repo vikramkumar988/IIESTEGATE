@@ -93,9 +93,17 @@ export default function CreateGeneralVisit({ navigation }) {
 
       const res = await generalVisitService.create(formData);
       const visit = res.data?.data?.general_visit;
+      const pass = res.data?.data?.gate_pass;
+      const smsStatus = res.data?.data?.sms_status;
 
-      // Auto-generate QR pass
-      if (visit) {
+      // The backend API already generates the gate pass internally
+      if (pass) {
+        if (smsStatus && !smsStatus.success) {
+          Alert.alert('Info', 'Pass generated, but SMS failed to send: ' + smsStatus.message);
+        }
+        setQrData(pass);
+      } else {
+        // Fallback just in case
         const passRes = await gatePassService.generateGeneral(visit.id);
         setQrData(passRes.data?.data?.gate_pass);
       }

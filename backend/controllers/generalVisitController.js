@@ -99,7 +99,7 @@ exports.createGeneralVisit = async (req, res, next) => {
 // Get all general visits
 exports.getGeneralVisits = async (req, res, next) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, date_from, date_to, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
     let query = `
       SELECT gv.*, v.full_name as visitor_name, v.phone as visitor_phone, v.photo_url as visitor_photo,
@@ -111,13 +111,21 @@ exports.getGeneralVisits = async (req, res, next) => {
     const params = [];
     const conditions = [];
 
-    if (req.user.role === 'guard') {
-      conditions.push(`gv.guard_id = $${params.length + 1}`);
-      params.push(req.user.id);
-    }
+    // Removed the req.user.role === 'guard' restriction to let ALL guards view ALL general visitors
+
     if (status) {
       conditions.push(`gv.status = $${params.length + 1}`);
       params.push(status);
+    }
+    
+    // Timezone-aware date filters matching Indian Standard Time
+    if (date_from) {
+      params.push(date_from);
+      conditions.push(`(gv.created_at AT TIME ZONE 'Asia/Kolkata')::date >= $${params.length}::date`);
+    }
+    if (date_to) {
+      params.push(date_to);
+      conditions.push(`(gv.created_at AT TIME ZONE 'Asia/Kolkata')::date <= $${params.length}::date`);
     }
 
     if (conditions.length > 0) {
