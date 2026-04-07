@@ -1,6 +1,8 @@
 const pool = require('../config/db');
 const { generatePassCode, generateQRCode } = require('../utils/qrGenerator');
 const { sendPassSMS } = require('../utils/smsService');
+const { sendGatePassEmail } = require('../utils/emailService');
+const SERVER_PUBLIC_URL = process.env.SERVER_PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Generate QR code for approved visit request
 exports.generatePass = async (req, res, next) => {
@@ -10,7 +12,7 @@ exports.generatePass = async (req, res, next) => {
 
     // Check if visit request exists and is approved
     const visitResult = await pool.query(
-      `SELECT vr.*, v.full_name as visitor_name, v.phone as visitor_phone
+      `SELECT vr.*, v.full_name as visitor_name, v.phone as visitor_phone, v.visitor_email
        FROM visit_requests vr
        JOIN visitors v ON vr.visitor_id = v.id
        WHERE vr.id = $1`,
@@ -42,7 +44,7 @@ exports.generatePass = async (req, res, next) => {
     }
 
     const pass_code = generatePassCode();
-    const valid_until = visit.valid_until || new Date(Date.now() + 4 * 60 * 60 * 1000);
+    const valid_until = visit.valid_until ? new Date(visit.valid_until) : new Date(Date.now() + 4 * 60 * 60 * 1000);
 
     const qrPayload = {
       pass_code,
@@ -60,13 +62,29 @@ exports.generatePass = async (req, res, next) => {
       [pass_code, visitId, visit.visitor_id, guard_id, qr_data, valid_until]
     );
 
-    // Send SMS with pass link to visitor
+    // Send SMS + email with pass link to visitor
     try {
       const smsResult = await sendPassSMS(visit.visitor_phone, pass_code, visit.visitor_name);
       if (smsResult.success) {
         await pool.query('UPDATE gate_passes SET sms_sent = true, sms_sent_at = NOW() WHERE id = $1', [result.rows[0].id]);
       }
     } catch (smsErr) { console.log('SMS send error (non-fatal):', smsErr.message); }
+    try {
+      const passUrl = `${SERVER_PUBLIC_URL}/pass/${pass_code}`;
+      const emailResult = await sendGatePassEmail(
+        visit.visitor_email,
+        visit.visitor_name,
+        pass_code,
+        passUrl,
+        {
+          purpose: visit.purpose,
+          validUntil: valid_until,
+        }
+      );
+      if (!emailResult.success) {
+        console.log(`Email send skipped/failed (non-fatal): ${emailResult.error || 'unknown'}`);
+      }
+    } catch (emailErr) { console.log('Email send error (non-fatal):', emailErr.message); }
 
     res.status(201).json({
       success: true,
@@ -85,7 +103,7 @@ exports.generateGeneralPass = async (req, res, next) => {
     const guard_id = req.user.id;
 
     const visitResult = await pool.query(
-      `SELECT gv.*, v.full_name as visitor_name, v.phone as visitor_phone
+      `SELECT gv.*, v.full_name as visitor_name, v.phone as visitor_phone, v.visitor_email
        FROM general_visits gv
        JOIN visitors v ON gv.visitor_id = v.id
        WHERE gv.id = $1`,
@@ -134,13 +152,29 @@ exports.generateGeneralPass = async (req, res, next) => {
       [pass_code, generalVisitId, visit.visitor_id, guard_id, qr_data, visit.valid_until]
     );
 
-    // Send SMS with pass link to visitor
+    // Send SMS + email with pass link to visitor
     try {
       const smsResult = await sendPassSMS(visit.visitor_phone, pass_code, visit.visitor_name);
       if (smsResult.success) {
         await pool.query('UPDATE gate_passes SET sms_sent = true, sms_sent_at = NOW() WHERE id = $1', [result.rows[0].id]);
       }
     } catch (smsErr) { console.log('SMS send error (non-fatal):', smsErr.message); }
+    try {
+      const passUrl = `${SERVER_PUBLIC_URL}/pass/${pass_code}`;
+      const emailResult = await sendGatePassEmail(
+        visit.visitor_email,
+        visit.visitor_name,
+        pass_code,
+        passUrl,
+        {
+          purpose: visit.purpose,
+          validUntil: visit.valid_until,
+        }
+      );
+      if (!emailResult.success) {
+        console.log(`Email send skipped/failed (non-fatal): ${emailResult.error || 'unknown'}`);
+      }
+    } catch (emailErr) { console.log('Email send error (non-fatal):', emailErr.message); }
 
     res.status(201).json({
       success: true,

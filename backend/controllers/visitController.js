@@ -3,6 +3,8 @@ const { sendPushNotification } = require('../utils/pushNotification');
 const { logActivity } = require('../utils/activityLogger');
 const { generatePassCode, generateQRCode } = require('../utils/qrGenerator');
 const { sendPassSMS } = require('../utils/smsService');
+const { sendGatePassEmail } = require('../utils/emailService');
+const SERVER_PUBLIC_URL = process.env.SERVER_PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Lookup a visitor by phone number (Guard — for auto-fill)
 exports.lookupVisitorByPhone = async (req, res, next) => {
@@ -423,8 +425,8 @@ exports.approveRequest = async (req, res, next) => {
       [valid_until, message || null, id]
     );
 
-    // Get visitor details for SMS + gate pass
-    const visitorResult = await pool.query('SELECT full_name, phone FROM visitors WHERE id = $1', [request.rows[0].visitor_id]);
+    // Get visitor details for SMS + email + gate pass
+    const visitorResult = await pool.query('SELECT full_name, phone, visitor_email FROM visitors WHERE id = $1', [request.rows[0].visitor_id]);
     const visitor = visitorResult.rows[0];
 
     // Get guard info for notification
@@ -474,8 +476,10 @@ exports.approveRequest = async (req, res, next) => {
         gatePass = passResult.rows[0];
       }
 
-      // Send SMS with pass link to visitor immediately
+      // Send SMS + email with pass link to visitor immediately
       if (gatePass) {
+        const passUrl = `${SERVER_PUBLIC_URL}/pass/${gatePass.pass_code}`;
+
         try {
           const smsResult = await sendPassSMS(visitor.phone, gatePass.pass_code, visitor.full_name);
           if (smsResult.success) {
@@ -483,6 +487,25 @@ exports.approveRequest = async (req, res, next) => {
           }
         } catch (smsErr) {
           console.log('SMS send error on approval (non-fatal):', smsErr.message);
+        }
+
+        try {
+          const emailResult = await sendGatePassEmail(
+            visitor.visitor_email,
+            visitor.full_name,
+            gatePass.pass_code,
+            passUrl,
+            {
+              staffName: req.user.full_name,
+              purpose: request.rows[0].purpose,
+              validUntil: gatePass.valid_until,
+            }
+          );
+          if (!emailResult.success) {
+            console.log(`Email send skipped/failed (non-fatal): ${emailResult.error || 'unknown'}`);
+          }
+        } catch (emailErr) {
+          console.log('Email send error on approval (non-fatal):', emailErr.message);
         }
       }
     } catch (passErr) {

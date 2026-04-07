@@ -3,6 +3,8 @@ const { sendPushNotification } = require('../utils/pushNotification');
 const { logActivity } = require('../utils/activityLogger');
 const { generatePassCode, generateQRCode } = require('../utils/qrGenerator');
 const { sendPreRegApprovalSMS } = require('../utils/smsService');
+const { sendPreRegStatusEmail } = require('../utils/emailService');
+const SERVER_PUBLIC_URL = process.env.SERVER_PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // ============================================================
 // PUBLIC ENDPOINTS (No Auth)
@@ -271,7 +273,7 @@ exports.approvePreRegistration = async (req, res, next) => {
     const visitRequest = visitReqResult.rows[0];
 
     // 2. Generate gate pass + QR code
-    const visitorResult = await pool.query('SELECT full_name, phone FROM visitors WHERE id = $1', [preReg.visitor_id]);
+    const visitorResult = await pool.query('SELECT full_name, phone, visitor_email FROM visitors WHERE id = $1', [preReg.visitor_id]);
     const visitor = visitorResult.rows[0];
 
     const pass_code = generatePassCode();
@@ -315,6 +317,25 @@ exports.approvePreRegistration = async (req, res, next) => {
       console.log('Pre-reg SMS error (non-fatal):', smsErr.message);
     }
 
+    try {
+      const passUrl = `${SERVER_PUBLIC_URL}/pass/${pass_code}`;
+      const emailResult = await sendPreRegStatusEmail(
+        visitor.visitor_email,
+        visitor.full_name,
+        'approved',
+        {
+          staffName: req.user.full_name,
+          scheduledDate: new Date(preReg.scheduled_date).toLocaleDateString('en-IN', { dateStyle: 'medium' }),
+          passUrl,
+        }
+      );
+      if (!emailResult.success) {
+        console.log(`Pre-reg approval email skipped/failed (non-fatal): ${emailResult.error || 'unknown'}`);
+      }
+    } catch (emailErr) {
+      console.log('Pre-reg approval email error (non-fatal):', emailErr.message);
+    }
+
     await logActivity(req.user.id, 'approve_pre_registration', 'pre_registration', id, {
       visitor_name: visitor.full_name, validity_hours, pass_code,
     });
@@ -344,6 +365,8 @@ exports.rejectPreRegistration = async (req, res, next) => {
     }
 
     const preReg = preRegResult.rows[0];
+    const visitorResult = await pool.query('SELECT full_name, visitor_email FROM visitors WHERE id = $1', [preReg.visitor_id]);
+    const visitor = visitorResult.rows[0];
 
     if (preReg.staff_id !== req.user.id) {
       return res.status(403).json({ success: false, message: 'You can only reject your own pre-registrations' });
@@ -357,6 +380,24 @@ exports.rejectPreRegistration = async (req, res, next) => {
       `UPDATE pre_registrations SET status = 'rejected', reject_reason = $1, updated_at = NOW() WHERE id = $2`,
       [reason || null, id]
     );
+
+    try {
+      const emailResult = await sendPreRegStatusEmail(
+        visitor?.visitor_email,
+        visitor?.full_name || 'Visitor',
+        'rejected',
+        {
+          staffName: req.user.full_name,
+          scheduledDate: new Date(preReg.scheduled_date).toLocaleDateString('en-IN', { dateStyle: 'medium' }),
+          rejectReason: reason || 'Not specified',
+        }
+      );
+      if (!emailResult.success) {
+        console.log(`Pre-reg rejection email skipped/failed (non-fatal): ${emailResult.error || 'unknown'}`);
+      }
+    } catch (emailErr) {
+      console.log('Pre-reg rejection email error (non-fatal):', emailErr.message);
+    }
 
     await logActivity(req.user.id, 'reject_pre_registration', 'pre_registration', id, { reason });
 
