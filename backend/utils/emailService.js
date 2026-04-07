@@ -2,20 +2,19 @@ const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const dns = require('dns');
+// Force Node.js to prefer IPv4 — fixes "connect ENETUNREACH" when IPv6 is unavailable
+dns.setDefaultResultOrder('ipv4first');
 
-// Create reusable transporter — force IPv4 to avoid ENETUNREACH on IPv6
+// Create reusable transporter using Gmail service
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT) || 587,
-  secure: false,
-  requireTLS: true,
+  service: 'gmail',
   auth: {
     user: process.env.SMTP_EMAIL,
     pass: process.env.SMTP_PASSWORD,
   },
-  // Force IPv4 — fixes "connect ENETUNREACH" on networks without IPv6
-  dnsOptions: { family: 4 },
   tls: { rejectUnauthorized: false },
+  connectionTimeout: 15000,
+  greetingTimeout: 10000,
 });
 
 /**
