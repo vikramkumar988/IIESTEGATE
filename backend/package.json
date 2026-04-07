@@ -4,7 +4,7 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node seed.js && node server.js",
     "dev": "node server.js",
     "seed": "node seed.js",
     "init-db": "node -e \"const fs=require('fs');const {Client}=require('pg');const c=new Client({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});c.connect().then(()=>c.query(fs.readFileSync('schema.sql','utf8'))).then(()=>console.log('DB INIT SUCCESS')).catch(e=>console.error(e)).finally(()=>c.end());\"",

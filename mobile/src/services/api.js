@@ -1,19 +1,10 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
-import Constants from 'expo-constants';
+// ✅ Production server on Render
+const API_BASE_URL = 'https://iiestegate.onrender.com/api';
 
-// Dynamically determine the backend IP address based on the Expo development server
-let API_BASE_URL = 'http://10.224.241.11:3000/api'; // Fallback
-
-// expoConfig.hostUri typically looks like "192.168.1.5:8081"
-const debuggerHost = Constants.expoConfig?.hostUri;
-if (debuggerHost) {
-  const ipAddress = debuggerHost.split(':')[0];
-  API_BASE_URL = `http://${ipAddress}:3000/api`;
-}
-
-const getBaseUrl = () => API_BASE_URL.replace('/api', '');
+const getBaseUrl = () => 'https://iiestegate.onrender.com';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
