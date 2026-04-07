@@ -21,21 +21,28 @@ const DATE_FILTERS = [
   { key: 'all', label: 'All Time' },
 ];
 
+function formatLocalDate(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function getDateRange(filter) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   switch (filter) {
     case 'today':
-      return { date_from: today.toISOString().split('T')[0], date_to: today.toISOString().split('T')[0] };
+      return { date_from: formatLocalDate(today), date_to: formatLocalDate(today) };
     case 'yesterday': {
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
-      return { date_from: yesterday.toISOString().split('T')[0], date_to: yesterday.toISOString().split('T')[0] };
+      return { date_from: formatLocalDate(yesterday), date_to: formatLocalDate(yesterday) };
     }
     case 'week': {
       const weekStart = new Date(today);
       weekStart.setDate(weekStart.getDate() - 7);
-      return { date_from: weekStart.toISOString().split('T')[0], date_to: today.toISOString().split('T')[0] };
+      return { date_from: formatLocalDate(weekStart), date_to: formatLocalDate(today) };
     }
     default:
       return {};
