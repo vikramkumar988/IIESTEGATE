@@ -4,6 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Header, Card, Badge, Button, EmptyState, LoadingScreen } from '../../components';
 import { userService, getBaseUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { resolvePhotoUrl } from '../../utils/photoUrl';
+
+
+
 
 const ORG_LABELS = { iiest: 'IIEST Shibpur', bank: 'United Bank / PNB', school: 'Model School', iti: 'ITI College', other: 'Other' };
 
@@ -95,7 +99,7 @@ export default function PendingUsers({ navigation }) {
               <View style={styles.cardHeader}>
                 <View style={styles.userInfo}>
                   {user.profile_photo ? (
-                    <Image source={{ uri: `${getBaseUrl()}${user.profile_photo}` }} style={styles.avatar} />
+                    <Image source={{ uri: resolvePhotoUrl(user.profile_photo) }} style={styles.avatar} />
                   ) : (
                     <View style={styles.avatarPlaceholder}>
                       <Text style={styles.avatarInitial}>{user.full_name.charAt(0).toUpperCase()}</Text>

@@ -25,12 +25,9 @@ const DATE_FILTERS = [
   { key: 'month', label: 'This Month' },
   { key: 'all', label: 'All Time' },
 ];
+import { resolvePhotoUrl } from '../../utils/photoUrl';
 
-function resolvePhotoUrl(path) {
-  if (!path) return null;
-  if (typeof path === 'string' && (path.startsWith('http://') || path.startsWith('https://'))) return path;
-  return `${getBaseUrl()}${path}`;
-}
+
 
 export default function AllVisits({ navigation }) {
   const [visits, setVisits] = useState([]);

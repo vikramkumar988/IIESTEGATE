@@ -4,6 +4,7 @@ const { logActivity } = require('../utils/activityLogger');
 const { generatePassCode, generateQRCode } = require('../utils/qrGenerator');
 const { sendPassSMS } = require('../utils/smsService');
 const { sendGatePassEmail } = require('../utils/emailService');
+const { processAndEncodeImage } = require('../utils/imageProcessor');
 const SERVER_PUBLIC_URL = process.env.SERVER_PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Lookup a visitor by phone number (Guard — for auto-fill)
@@ -31,7 +32,12 @@ exports.createVisitRequest = async (req, res, next) => {
   try {
     const { visitor_name, visitor_phone, visitor_id_type, visitor_id_number, visitor_address, staff_id, purpose, notes } = req.body;
     const guard_id = req.user.id;
-    const photo_url = req.file ? `/uploads/${req.file.filename}` : null;
+    // Process uploaded photo: compress and store as base64 data URI in DB
+    // This survives Render redeploys (no ephemeral disk dependency)
+    let photo_url = null;
+    if (req.file) {
+      photo_url = await processAndEncodeImage(req.file.buffer, req.file.mimetype);
+    }
 
     // Check if visitor already exists by phone
     let visitorResult = await pool.query('SELECT * FROM visitors WHERE phone = $1', [visitor_phone]);

@@ -4,6 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Header, Card, Badge, LoadingScreen, Button } from '../../components';
 import { visitService, gatePassService, getBaseUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { resolvePhotoUrl } from '../../utils/photoUrl';
+
+
+
 
 export default function VisitDetail({ navigation, route }) {
   const { visitId } = route.params;
@@ -68,7 +72,7 @@ export default function VisitDetail({ navigation, route }) {
           </View>
           <View style={styles.visitorHeader}>
             {visit.visitor_photo ? (
-              <Image source={{ uri: `${getBaseUrl()}${visit.visitor_photo}` }} style={styles.photo} />
+              <Image source={{ uri: resolvePhotoUrl(visit.visitor_photo) }} style={styles.photo} />
             ) : (
               <View style={styles.photoPlaceholder}>
                 <Ionicons name="person" size={36} color={Colors.textMuted} />

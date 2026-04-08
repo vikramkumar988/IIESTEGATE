@@ -5,6 +5,10 @@ import { useAuth } from '../../context/AuthContext';
 import { Card, StatCard, Header, LoadingScreen, Badge, Button, Avatar } from '../../components';
 import { dashboardService, notificationService, userService, visitService, gatePassService, getBaseUrl, getPreRegUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { resolvePhotoUrl } from '../../utils/photoUrl';
+
+
+
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -193,7 +197,7 @@ export default function AdminDashboard({ navigation }) {
                 return (
                   <TouchableOpacity key={`inside-${v.pass_id}-${i}`} style={[styles.insideRow, isOverstay && styles.insideRowOverstay]} activeOpacity={0.7} onPress={() => openVisitorModal(v)}>
                     {v.visitor_photo ? (
-                      <Image source={{ uri: `${getBaseUrl()}${v.visitor_photo}` }} style={styles.insideAvatar} />
+                      <Image source={{ uri: resolvePhotoUrl(v.visitor_photo) }} style={styles.insideAvatar} />
                     ) : (
                       <View style={styles.insideAvatarPlaceholder}>
                         <Text style={styles.insideAvatarInitial}>{v.visitor_name?.charAt(0)?.toUpperCase()}</Text>
@@ -342,7 +346,7 @@ export default function AdminDashboard({ navigation }) {
               <ScrollView contentContainerStyle={styles.visitorModalContent} showsVerticalScrollIndicator={false}>
                 <View style={styles.visitorModalHeader}>
                   {selectedVisitor.visitor_photo ? (
-                    <Image source={{ uri: `${getBaseUrl()}${selectedVisitor.visitor_photo}` }} style={styles.visitorModalAvatar} />
+                    <Image source={{ uri: resolvePhotoUrl(selectedVisitor.visitor_photo) }} style={styles.visitorModalAvatar} />
                   ) : (
                     <View style={styles.visitorModalAvatarPlaceholder}>
                       <Ionicons name="person" size={48} color={Colors.textMuted} />

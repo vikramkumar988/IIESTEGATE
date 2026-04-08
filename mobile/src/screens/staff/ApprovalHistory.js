@@ -4,6 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Card, Badge, Header, EmptyState, LoadingScreen } from '../../components';
 import { visitService, getBaseUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { resolvePhotoUrl } from '../../utils/photoUrl';
+
+
 
 const STATUS_TABS = [
   { key: 'all', label: 'All' },
@@ -147,7 +150,7 @@ export default function ApprovalHistory({ navigation }) {
         <View style={styles.cardHeader}>
           {/* Photo */}
           {h.visitor_photo ? (
-            <Image source={{ uri: `${getBaseUrl()}${h.visitor_photo}` }} style={styles.photo} />
+            <Image source={{ uri: resolvePhotoUrl(h.visitor_photo) }} style={styles.photo} />
           ) : (
             <View style={styles.photoPlaceholder}>
               <Ionicons name="person" size={24} color={Colors.textMuted} />

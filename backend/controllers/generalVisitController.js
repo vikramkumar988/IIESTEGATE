@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const { generatePassCode, generateQRCode } = require('../utils/qrGenerator');
 const { sendPassSMS } = require('../utils/smsService');
+const { processAndEncodeImage } = require('../utils/imageProcessor');
 
 // Create general visit (Guard) — no approval needed
 // Auto-generates gate pass + sends SMS to visitor immediately
@@ -8,7 +9,11 @@ exports.createGeneralVisit = async (req, res, next) => {
   try {
     const { visitor_name, visitor_phone, purpose, purpose_detail, validity_hours = 2, vehicle_number, vehicle_type } = req.body;
     const guard_id = req.user.id;
-    const photo_url = req.file ? `/uploads/${req.file.filename}` : null;
+    // Process uploaded photo: compress and store as base64 data URI in DB
+    let photo_url = null;
+    if (req.file) {
+      photo_url = await processAndEncodeImage(req.file.buffer, req.file.mimetype);
+    }
 
     // Check/create visitor
     let visitorResult = await pool.query('SELECT * FROM visitors WHERE phone = $1', [visitor_phone]);

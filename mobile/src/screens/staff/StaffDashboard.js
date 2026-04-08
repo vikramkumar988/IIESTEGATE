@@ -7,6 +7,9 @@ import { useAuth } from '../../context/AuthContext';
 import { Card, StatCard, Header, Badge, LoadingScreen, EmptyState, Button } from '../../components';
 import { visitService, notificationService, userService, dashboardService, preRegService, getBaseUrl, getPreRegUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { resolvePhotoUrl } from '../../utils/photoUrl';
+
+
 
 const TABS = [
   { key: 'pending', label: 'Pending', icon: 'hourglass' },
@@ -364,7 +367,7 @@ export default function StaffDashboard({ navigation }) {
                 <View style={styles.requestRow}>
                   <View style={styles.userSection}>
                     {request.visitor_photo ? (
-                      <Image source={{ uri: `${getBaseUrl()}${request.visitor_photo}` }} style={styles.avatar} />
+                      <Image source={{ uri: resolvePhotoUrl(request.visitor_photo) }} style={styles.avatar} />
                     ) : (
                       <View style={styles.avatarPlaceholder}><Ionicons name="person" size={24} color={Colors.textMuted} /></View>
                     )}
@@ -454,7 +457,7 @@ export default function StaffDashboard({ navigation }) {
               <View style={styles.requestRow}>
                 <View style={styles.userSection}>
                   {preReg.visitor_photo ? (
-                    <Image source={{ uri: `${getBaseUrl()}${preReg.visitor_photo}` }} style={styles.avatar} />
+                    <Image source={{ uri: resolvePhotoUrl(preReg.visitor_photo) }} style={styles.avatar} />
                   ) : (
                     <View style={styles.avatarPlaceholder}><Ionicons name="person" size={24} color={Colors.textMuted} /></View>
                   )}

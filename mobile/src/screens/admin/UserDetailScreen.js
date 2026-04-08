@@ -4,6 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Header, Card, Badge, Button, LoadingScreen } from '../../components';
 import { userService, getBaseUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { resolvePhotoUrl } from '../../utils/photoUrl';
+
+
+
 
 const ORG_LABELS = { iiest: 'IIEST', bank: 'Bank', school: 'School', iti: 'ITI', other: 'Other' };
 
@@ -69,7 +73,7 @@ export default function UserDetailScreen({ navigation, route }) {
         {/* Profile Header */}
         <View style={styles.profileHeader}>
           {user.profile_photo ? (
-            <Image source={{ uri: `${getBaseUrl()}${user.profile_photo}` }} style={styles.profilePhoto} />
+            <Image source={{ uri: resolvePhotoUrl(user.profile_photo) }} style={styles.profilePhoto} />
           ) : (
             <View style={[styles.avatarCircle, { backgroundColor: getRoleColor(user.role) + '20' }]}>
               <Text style={[styles.avatarText, { color: getRoleColor(user.role) }]}>

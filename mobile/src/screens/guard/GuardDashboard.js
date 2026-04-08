@@ -5,6 +5,10 @@ import { useAuth } from '../../context/AuthContext';
 import { Card, StatCard, Header, Badge, LoadingScreen, EmptyState, Button } from '../../components';
 import { visitService, notificationService, dashboardService, userService, gatePassService, getBaseUrl, getPreRegUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { resolvePhotoUrl } from '../../utils/photoUrl';
+
+
+
 
 const TABS = [
   { key: 'pending', label: 'Pending', icon: 'hourglass' },
@@ -301,7 +305,7 @@ export default function GuardDashboard({ navigation }) {
             {recentEntries.map((entry, index) => (
               <TouchableOpacity key={`inside-${entry.pass_id}-${index}`} style={styles.recentEntry} activeOpacity={0.7} onPress={() => openVisitorModal(entry)}>
                 {entry.visitor_photo ? (
-                  <Image source={{ uri: `${getBaseUrl()}${entry.visitor_photo}` }} style={styles.recentAvatar} />
+                  <Image source={{ uri: resolvePhotoUrl(entry.visitor_photo) }} style={styles.recentAvatar} />
                 ) : (
                   <View style={styles.recentAvatarPlaceholder}><Ionicons name="person" size={16} color={Colors.textMuted} /></View>
                 )}
@@ -343,7 +347,7 @@ export default function GuardDashboard({ navigation }) {
               <Card key={`visit-${visit.id}-${idx}`} style={styles.visitCard} onPress={() => navigation.navigate('EditVisitRequest', { requestId: visit.id })}>
                 <View style={styles.visitRow}>
                   {visit.visitor_photo ? (
-                    <Image source={{ uri: `${getBaseUrl()}${visit.visitor_photo}` }} style={styles.avatar} />
+                    <Image source={{ uri: resolvePhotoUrl(visit.visitor_photo) }} style={styles.avatar} />
                   ) : (
                     <View style={styles.avatarPlaceholder}><Ionicons name="person" size={24} color={Colors.textMuted} /></View>
                   )}
@@ -417,7 +421,7 @@ export default function GuardDashboard({ navigation }) {
                 {/* Photo & Name */}
                 <View style={styles.modalHeader}>
                   {selectedVisitor.visitor_photo ? (
-                    <Image source={{ uri: `${getBaseUrl()}${selectedVisitor.visitor_photo}` }} style={styles.modalAvatar} />
+                    <Image source={{ uri: resolvePhotoUrl(selectedVisitor.visitor_photo) }} style={styles.modalAvatar} />
                   ) : (
                     <View style={styles.modalAvatarPlaceholder}>
                       <Ionicons name="person" size={48} color={Colors.textMuted} />

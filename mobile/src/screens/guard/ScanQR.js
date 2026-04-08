@@ -5,6 +5,10 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Button, Header, Badge } from '../../components';
 import { gatePassService, getBaseUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { resolvePhotoUrl } from '../../utils/photoUrl';
+
+
+
 
 const SCAN_MODES = [
   { key: 'entry', label: 'Entry', icon: 'log-in-outline', color: Colors.success },
@@ -113,7 +117,7 @@ export default function ScanQR({ navigation }) {
           </View>
           <View style={styles.resultCard}>
             {result.pass?.visitor_photo && (
-              <Image source={{ uri: result.pass.visitor_photo.startsWith('http') ? result.pass.visitor_photo : `${getBaseUrl()}${result.pass.visitor_photo}` }} style={styles.resultPhoto} />
+              <Image source={{ uri: resolvePhotoUrl(result.pass.visitor_photo) }} style={styles.resultPhoto} />
             )}
             <Text style={styles.resultName}>{result.pass?.visitor_name || 'Unknown'}</Text>
             <Text style={styles.resultDetail}>📱 {result.pass?.visitor_phone}</Text>
@@ -202,7 +206,7 @@ export default function ScanQR({ navigation }) {
           {result.pass && (
             <View style={styles.resultCard}>
               {result.pass.visitor_photo && (
-                <Image source={{ uri: result.pass.visitor_photo.startsWith('http') ? result.pass.visitor_photo : `${getBaseUrl()}${result.pass.visitor_photo}` }} style={styles.resultPhoto} />
+                <Image source={{ uri: resolvePhotoUrl(result.pass.visitor_photo) }} style={styles.resultPhoto} />
               )}
               <Text style={styles.resultName}>{result.pass.visitor_name}</Text>
               <Text style={styles.resultDetail}>📱 {result.pass.visitor_phone}</Text>

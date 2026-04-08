@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Card, Badge, Header, EmptyState, LoadingScreen, Button } from '../../components';
 import { visitService, generalVisitService, gatePassService, getBaseUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { resolvePhotoUrl } from '../../utils/photoUrl';
 
 const TYPE_TABS = [
   { key: 'professor', label: 'Professor Visits', icon: 'school' },
@@ -80,11 +81,7 @@ function safeTime(value, fallback = '—') {
   return d ? d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : fallback;
 }
 
-function resolvePhotoUrl(path) {
-  if (!path) return null;
-  if (typeof path === 'string' && (path.startsWith('http://') || path.startsWith('https://'))) return path;
-  return `${getBaseUrl()}${path}`;
-}
+
 
 export default function GuardHistory({ navigation }) {
   const [visits, setVisits] = useState([]);

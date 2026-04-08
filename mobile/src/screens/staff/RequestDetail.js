@@ -4,6 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Header, Card, Badge, Button, LoadingScreen } from '../../components';
 import { visitService, getBaseUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { resolvePhotoUrl } from '../../utils/photoUrl';
+
+
+
 
 export default function RequestDetail({ navigation, route }) {
   const { requestId } = route.params;
@@ -126,7 +130,7 @@ export default function RequestDetail({ navigation, route }) {
         <Card style={styles.section}>
           <Text style={styles.sectionTitle}>Visitor Information</Text>
           {request.visitor_photo && (
-            <Image source={{ uri: `${getBaseUrl()}${request.visitor_photo}` }} style={styles.visitorPhoto} />
+            <Image source={{ uri: resolvePhotoUrl(request.visitor_photo) }} style={styles.visitorPhoto} />
           )}
           <DetailRow icon="person" label="Name" value={request.visitor_name} />
           <DetailRow icon="call" label="Phone" value={request.visitor_phone} />
