@@ -80,6 +80,12 @@ function safeTime(value, fallback = '—') {
   return d ? d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : fallback;
 }
 
+function resolvePhotoUrl(path) {
+  if (!path) return null;
+  if (typeof path === 'string' && (path.startsWith('http://') || path.startsWith('https://'))) return path;
+  return `${getBaseUrl()}${path}`;
+}
+
 export default function GuardHistory({ navigation }) {
   const [visits, setVisits] = useState([]);
   const [summary, setSummary] = useState({});
@@ -213,7 +219,7 @@ export default function GuardHistory({ navigation }) {
       <Card style={styles.card}>
         <View style={styles.row}>
           {v.visitor_photo ? (
-            <Image source={{ uri: `${getBaseUrl()}${v.visitor_photo}` }} style={styles.thumb} />
+            <Image source={{ uri: resolvePhotoUrl(v.visitor_photo) }} style={styles.thumb} />
           ) : (
             <View style={styles.thumbPlaceholder}>
               <Ionicons name="person" size={22} color={Colors.textMuted} />

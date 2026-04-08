@@ -126,14 +126,14 @@ exports.getGeneralVisits = async (req, res, next) => {
       params.push(status);
     }
     
-    // Timezone-aware date filters matching Indian Standard Time
+    // Date filters based on stored created_at date
     if (date_from) {
       params.push(date_from);
-      conditions.push(`(gv.created_at AT TIME ZONE 'Asia/Kolkata')::date >= $${params.length}::date`);
+      conditions.push(`gv.created_at::date >= $${params.length}::date`);
     }
     if (date_to) {
       params.push(date_to);
-      conditions.push(`(gv.created_at AT TIME ZONE 'Asia/Kolkata')::date <= $${params.length}::date`);
+      conditions.push(`gv.created_at::date <= $${params.length}::date`);
     }
 
     if (conditions.length > 0) {

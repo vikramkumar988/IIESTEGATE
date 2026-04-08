@@ -26,6 +26,12 @@ const DATE_FILTERS = [
   { key: 'all', label: 'All Time' },
 ];
 
+function resolvePhotoUrl(path) {
+  if (!path) return null;
+  if (typeof path === 'string' && (path.startsWith('http://') || path.startsWith('https://'))) return path;
+  return `${getBaseUrl()}${path}`;
+}
+
 export default function AllVisits({ navigation }) {
   const [visits, setVisits] = useState([]);
   const [generalVisits, setGeneralVisits] = useState([]);
@@ -89,7 +95,7 @@ export default function AllVisits({ navigation }) {
       onPress={() => typeTab === 'professor' ? navigation.navigate('VisitDetail', { visitId: v.id }) : null}>
       <View style={styles.visitRow}>
         {v.visitor_photo ? (
-          <Image source={{ uri: `${getBaseUrl()}${v.visitor_photo}` }} style={styles.photo} />
+          <Image source={{ uri: resolvePhotoUrl(v.visitor_photo) }} style={styles.photo} />
         ) : (
           <View style={styles.photoPlaceholder}>
             <Ionicons name="person" size={22} color={Colors.textMuted} />

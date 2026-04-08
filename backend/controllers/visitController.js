@@ -678,11 +678,11 @@ exports.getStaffHistory = async (req, res, next) => {
     // This keeps "Today/Yesterday" buckets stable and based on when the request was raised.
     if (date_from) {
       params.push(date_from);
-      query += ` AND (vr.created_at AT TIME ZONE 'Asia/Kolkata')::date >= $${params.length}::date`;
+      query += ` AND vr.created_at::date >= $${params.length}::date`;
     }
     if (date_to) {
       params.push(date_to);
-      query += ` AND (vr.created_at AT TIME ZONE 'Asia/Kolkata')::date <= $${params.length}::date`;
+      query += ` AND vr.created_at::date <= $${params.length}::date`;
     }
 
     // Order by request date to match date buckets.
@@ -707,11 +707,11 @@ exports.getStaffHistory = async (req, res, next) => {
 
     if (date_from) {
       countParams.push(date_from);
-      countsQuery += ` AND (vr.created_at AT TIME ZONE 'Asia/Kolkata')::date >= $${countParams.length}::date`;
+      countsQuery += ` AND vr.created_at::date >= $${countParams.length}::date`;
     }
     if (date_to) {
       countParams.push(date_to);
-      countsQuery += ` AND (vr.created_at AT TIME ZONE 'Asia/Kolkata')::date <= $${countParams.length}::date`;
+      countsQuery += ` AND vr.created_at::date <= $${countParams.length}::date`;
     }
 
     const countsResult = await pool.query(countsQuery, countParams);
@@ -851,11 +851,11 @@ exports.getGuardDateHistory = async (req, res, next) => {
 
     // IST-aware date filters: convert created_at to IST before comparing
     if (date_from) {
-      conditions.push(`(vr.created_at AT TIME ZONE 'Asia/Kolkata')::date >= $${params.length + 1}::date`);
+      conditions.push(`vr.created_at::date >= $${params.length + 1}::date`);
       params.push(date_from);
     }
     if (date_to) {
-      conditions.push(`(vr.created_at AT TIME ZONE 'Asia/Kolkata')::date <= $${params.length + 1}::date`);
+      conditions.push(`vr.created_at::date <= $${params.length + 1}::date`);
       params.push(date_to);
     }
     if (status && status !== 'all') {
@@ -908,11 +908,11 @@ exports.getGuardDateHistory = async (req, res, next) => {
 
     // IST-aware date filters for counts too
     if (date_from) {
-      countConditions.push(`(vr.created_at AT TIME ZONE 'Asia/Kolkata')::date >= $${countParams.length + 1}::date`);
+      countConditions.push(`vr.created_at::date >= $${countParams.length + 1}::date`);
       countParams.push(date_from);
     }
     if (date_to) {
-      countConditions.push(`(vr.created_at AT TIME ZONE 'Asia/Kolkata')::date <= $${countParams.length + 1}::date`);
+      countConditions.push(`vr.created_at::date <= $${countParams.length + 1}::date`);
       countParams.push(date_to);
     }
     if (countConditions.length > 0) {
