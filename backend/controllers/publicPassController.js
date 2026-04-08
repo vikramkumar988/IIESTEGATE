@@ -1,5 +1,7 @@
 const pool = require('../config/db');
 
+const SERVER_PUBLIC_URL = process.env.SERVER_PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
+
 /**
  * Serve a public HTML page for a gate pass.
  * URL: GET /pass/:pass_code
@@ -43,6 +45,9 @@ exports.getPublicPass = async (req, res) => {
     else if (pass.status === 'expired' || new Date(pass.valid_until) < now) { statusLabel = 'EXPIRED'; statusColor = '#f59e0b'; }
     else { statusLabel = 'ACTIVE'; statusColor = '#22c55e'; }
 
+    // Build absolute photo URL for public page
+    const photoAbsUrl = pass.visitor_photo ? `${SERVER_PUBLIC_URL}${pass.visitor_photo}` : '';
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -81,7 +86,7 @@ exports.getPublicPass = async (req, res) => {
       </div>
 
       <div class="qr-section">
-        ${pass.visitor_photo ? `<img src="${pass.visitor_photo}" class="visitor-photo" alt="Visitor Photo" />` : ''}
+        ${photoAbsUrl ? `<img src="${photoAbsUrl}" class="visitor-photo" alt="Visitor Photo" />` : ''}
         ${pass.qr_data ? `<img src="${pass.qr_data}" class="qr-img" alt="QR Code" />` : '<p style="color:#737373">QR Code</p>'}
         <div class="qr-code-text">${pass.pass_code}</div>
       </div>

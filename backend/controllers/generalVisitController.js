@@ -126,14 +126,14 @@ exports.getGeneralVisits = async (req, res, next) => {
       params.push(status);
     }
     
-    // Date filters based on stored created_at date
+    // Date filters — IST timezone-aware (UTC+5:30)
     if (date_from) {
       params.push(date_from);
-      conditions.push(`gv.created_at::date >= $${params.length}::date`);
+      conditions.push(`(gv.created_at + INTERVAL '5 hours 30 minutes')::date >= $${params.length}::date`);
     }
     if (date_to) {
       params.push(date_to);
-      conditions.push(`gv.created_at::date <= $${params.length}::date`);
+      conditions.push(`(gv.created_at + INTERVAL '5 hours 30 minutes')::date <= $${params.length}::date`);
     }
 
     if (conditions.length > 0) {

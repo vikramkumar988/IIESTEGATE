@@ -133,8 +133,41 @@ export default function CreateGeneralVisit({ navigation }) {
             <Text style={styles.qrExpiry}>
               Valid until: {new Date(qrData.valid_until).toLocaleString('en-IN')}
             </Text>
+            {/* SMS Status */}
+            <View style={styles.smsStatusRow}>
+              <Ionicons 
+                name={qrData.sms_sent ? 'chatbubble-ellipses' : 'chatbubble-outline'} 
+                size={16} 
+                color={qrData.sms_sent ? '#22c55e' : Colors.textMuted} 
+              />
+              <Text style={[styles.smsStatusText, { color: qrData.sms_sent ? '#22c55e' : Colors.textMuted }]}>
+                {qrData.sms_sent ? 'SMS sent to visitor ✓' : 'SMS not sent yet'}
+              </Text>
+            </View>
           </View>
-          <Button title="Done" onPress={() => navigation.goBack()} icon="checkmark" size="lg" style={{ marginTop: Spacing.lg }} />
+          {/* Action Buttons */}
+          <View style={styles.successActions}>
+            <Button 
+              title="📱 Send / Resend SMS" 
+              variant="outline" 
+              icon="chatbubble" 
+              onPress={async () => {
+                try {
+                  const smsRes = await gatePassService.sendSMS(qrData.id);
+                  if (smsRes.data?.success) {
+                    Alert.alert('✅ SMS Sent', smsRes.data?.message || 'SMS sent to visitor');
+                    setQrData({ ...qrData, sms_sent: true });
+                  } else {
+                    Alert.alert('⚠️ SMS Failed', smsRes.data?.message || 'Could not send SMS');
+                  }
+                } catch (err) {
+                  Alert.alert('Error', err.response?.data?.message || 'Failed to send SMS');
+                }
+              }}
+              style={{ marginBottom: Spacing.md }}
+            />
+            <Button title="Done" onPress={() => navigation.goBack()} icon="checkmark" size="lg" />
+          </View>
         </ScrollView>
       </View>
     );
@@ -280,4 +313,8 @@ const styles = StyleSheet.create({
   returningBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(34,197,94,0.1)', borderWidth: 1, borderColor: 'rgba(34,197,94,0.3)', borderRadius: BorderRadius.md, padding: Spacing.md, marginBottom: Spacing.sm },
   blacklistBanner: { backgroundColor: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.3)' },
   returningText: { color: '#22c55e', fontSize: FontSizes.sm, fontWeight: '700', flex: 1 },
+
+  smsStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: Spacing.md, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: Colors.surfaceLight, borderRadius: BorderRadius.md },
+  smsStatusText: { fontSize: FontSizes.sm, fontWeight: '700' },
+  successActions: { width: '100%', marginTop: Spacing.lg },
 });

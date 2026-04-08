@@ -675,14 +675,15 @@ exports.getStaffHistory = async (req, res, next) => {
     }
 
     // Date filters — IST timezone-aware using request date (created_at).
-    // This keeps "Today/Yesterday" buckets stable and based on when the request was raised.
+    // The DB stores TIMESTAMP WITHOUT TIMEZONE in UTC; we must convert to IST
+    // before comparing dates so "Today" matches the user's local IST date.
     if (date_from) {
       params.push(date_from);
-      query += ` AND vr.created_at::date >= $${params.length}::date`;
+      query += ` AND (vr.created_at + INTERVAL '5 hours 30 minutes')::date >= $${params.length}::date`;
     }
     if (date_to) {
       params.push(date_to);
-      query += ` AND vr.created_at::date <= $${params.length}::date`;
+      query += ` AND (vr.created_at + INTERVAL '5 hours 30 minutes')::date <= $${params.length}::date`;
     }
 
     // Order by request date to match date buckets.
@@ -707,11 +708,11 @@ exports.getStaffHistory = async (req, res, next) => {
 
     if (date_from) {
       countParams.push(date_from);
-      countsQuery += ` AND vr.created_at::date >= $${countParams.length}::date`;
+      countsQuery += ` AND (vr.created_at + INTERVAL '5 hours 30 minutes')::date >= $${countParams.length}::date`;
     }
     if (date_to) {
       countParams.push(date_to);
-      countsQuery += ` AND vr.created_at::date <= $${countParams.length}::date`;
+      countsQuery += ` AND (vr.created_at + INTERVAL '5 hours 30 minutes')::date <= $${countParams.length}::date`;
     }
 
     const countsResult = await pool.query(countsQuery, countParams);
@@ -849,13 +850,13 @@ exports.getGuardDateHistory = async (req, res, next) => {
 
     // No guard_id filter — all guards see all requests campus-wide
 
-    // IST-aware date filters: convert created_at to IST before comparing
+    // IST-aware date filters: convert created_at to IST (UTC+5:30) before comparing
     if (date_from) {
-      conditions.push(`vr.created_at::date >= $${params.length + 1}::date`);
+      conditions.push(`(vr.created_at + INTERVAL '5 hours 30 minutes')::date >= $${params.length + 1}::date`);
       params.push(date_from);
     }
     if (date_to) {
-      conditions.push(`vr.created_at::date <= $${params.length + 1}::date`);
+      conditions.push(`(vr.created_at + INTERVAL '5 hours 30 minutes')::date <= $${params.length + 1}::date`);
       params.push(date_to);
     }
     if (status && status !== 'all') {
@@ -906,13 +907,13 @@ exports.getGuardDateHistory = async (req, res, next) => {
     const countParams = [];
     const countConditions = [];
 
-    // IST-aware date filters for counts too
+    // IST-aware date filters for counts too (UTC+5:30)
     if (date_from) {
-      countConditions.push(`vr.created_at::date >= $${countParams.length + 1}::date`);
+      countConditions.push(`(vr.created_at + INTERVAL '5 hours 30 minutes')::date >= $${countParams.length + 1}::date`);
       countParams.push(date_from);
     }
     if (date_to) {
-      countConditions.push(`vr.created_at::date <= $${countParams.length + 1}::date`);
+      countConditions.push(`(vr.created_at + INTERVAL '5 hours 30 minutes')::date <= $${countParams.length + 1}::date`);
       countParams.push(date_to);
     }
     if (countConditions.length > 0) {
