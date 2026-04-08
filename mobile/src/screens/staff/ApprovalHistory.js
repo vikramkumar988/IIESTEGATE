@@ -117,7 +117,8 @@ export default function ApprovalHistory({ navigation }) {
     let lastDate = '';
     let headerCounter = 0;
     for (const h of history) {
-      const dateLabel = getDateLabel(h.responded_at || h.created_at);
+      // Keep section headers aligned with backend date filtering (created_at).
+      const dateLabel = getDateLabel(h.created_at);
       if (dateLabel !== lastDate) {
         headerCounter++;
         items.push({ type: 'header', label: dateLabel, id: `header-${headerCounter}-${dateLabel}` });
