@@ -1,6 +1,12 @@
 const { Resend } = require('resend');
 require('dotenv').config();
 
+/**
+ * Email (Resend): use RESEND_API_KEY and RESEND_FROM_EMAIL.
+ * You cannot send "from" @gmail.com unless that domain is verified in Resend.
+ * Use onboarding@resend.dev for testing, or verify your own domain at resend.com/domains
+ * and set e.g. RESEND_FROM_EMAIL=IIEST E-Gate <noreply@yourdomain.com>.
+ */
 // Initialize Resend with API key (HTTP-based — works on Render free tier where SMTP is blocked)
 const resend = new Resend(process.env.RESEND_API_KEY || 'missing_key');
 

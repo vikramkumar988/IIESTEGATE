@@ -1,12 +1,20 @@
 /**
  * SMS Service — MSG91 Integration (Modern API)
- * 
+ *
  * Supports two modes:
  * 1. Flow API (production) — uses MSG91 Flow templates, requires MSG91_FLOW_ID
  * 2. Send SMS API v5 (fallback) — uses modern MSG91 v5 API for direct SMS
- * 
+ *
  * Set SMS_ENABLED=true and MSG91_AUTH_KEY in .env to activate.
  * When disabled, SMS calls silently succeed with a log message.
+ *
+ * MSG91 demo / KYC (important):
+ * - This code always sends to the visitor phone you pass in (no hardcoded number).
+ * - If your MSG91 account is in "demo" or KYC is incomplete, MSG91 may only deliver
+ *   test SMS to your account's registered mobile and may replace message body with
+ *   their testing notice ("SMS testing from your MSG91 account").
+ * - Complete KYC and move the account to "live" at https://msg91.com to send real
+ *   gate-pass SMS to any visitor number. Register DLT template for India if required.
  */
 const axios = require('axios');
 
@@ -129,8 +137,11 @@ async function sendPassSMS(phone, passCode, visitorName) {
     const resStr = typeof responseData === 'string' ? responseData : JSON.stringify(responseData);
 
     if (resStr && !resStr.toLowerCase().includes('error')) {
-      console.log(`✅ SMS sent successfully to ${phone}: ${passUrl}`);
-      return { success: true, message: 'SMS sent successfully', requestId: resStr, passUrl };
+      console.log(`✅ SMS API accepted for destination ${normalizedPhone} (original: ${phone}) — requestId: ${resStr}`);
+      console.warn(
+        '📱 If the phone only receives MSG91 "testing/demo" text instead of the gate pass link, complete MSG91 KYC and set the account live — demo routes often go to the registered number only.'
+      );
+      return { success: true, message: 'SMS sent successfully', requestId: resStr, passUrl, to: normalizedPhone };
     } else {
       console.error(`❌ SMS API returned error for ${phone}: ${resStr}`);
       return { success: false, message: `MSG91 error: ${resStr}`, passUrl };
@@ -184,8 +195,11 @@ async function sendPreRegApprovalSMS(phone, visitorName, staffName, scheduledDat
 
     const resStr = typeof responseData === 'string' ? responseData : JSON.stringify(responseData);
     if (resStr && !resStr.toLowerCase().includes('error')) {
-      console.log(`✅ Pre-reg approval SMS sent to ${phone}`);
-      return { success: true, message: 'SMS sent successfully', requestId: resStr };
+      console.log(`✅ Pre-reg SMS API accepted for ${normalizedPhone}`);
+      console.warn(
+        '📱 If only MSG91 demo text is received, complete MSG91 KYC / live account — see smsService.js header.'
+      );
+      return { success: true, message: 'SMS sent successfully', requestId: resStr, to: normalizedPhone };
     } else {
       console.error(`❌ Pre-reg SMS error for ${phone}: ${resStr}`);
       return { success: false, message: `MSG91 error: ${resStr}` };
