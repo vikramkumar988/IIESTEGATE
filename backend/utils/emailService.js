@@ -17,15 +17,28 @@ async function sendEmail(to, subject, html) {
       return { success: false, error: 'Email API key not configured' };
     }
 
-    const data = await resend.emails.send({
+    const response = await resend.emails.send({
       from: FROM_EMAIL,
       to: [to],
       subject,
       html,
     });
 
-    console.log(`[Email] Sent to ${to} — ID: ${data.data?.id || 'unknown'}`);
-    return { success: true, messageId: data.data?.id };
+    // Resend SDK can return { data, error } without throwing.
+    if (response?.error) {
+      const errMsg = response.error.message || response.error.name || 'Unknown Resend error';
+      console.error(`[Email] Resend API error for ${to}:`, errMsg);
+      return { success: false, error: errMsg };
+    }
+
+    const messageId = response?.data?.id;
+    if (!messageId) {
+      console.error(`[Email] No message id returned for ${to}. Raw response:`, JSON.stringify(response));
+      return { success: false, error: 'Email provider did not return message ID' };
+    }
+
+    console.log(`[Email] Sent to ${to} — ID: ${messageId}`);
+    return { success: true, messageId };
   } catch (error) {
     console.error(`[Email] Failed to send to ${to}:`, error.message);
     return { success: false, error: error.message };

@@ -59,6 +59,12 @@ function formatResponseTime(minutes) {
   return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
 }
 
+function safeDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export default function ApprovalHistory({ navigation }) {
   const [history, setHistory] = useState([]);
   const [summary, setSummary] = useState({});
@@ -89,15 +95,16 @@ export default function ApprovalHistory({ navigation }) {
   };
 
   const formatTime = (dateStr) => {
-    if (!dateStr) return '-';
-    const d = new Date(dateStr);
+    const d = safeDate(dateStr);
+    if (!d) return '-';
     return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' +
            d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   };
 
   // Group records by date for section headers
   const getDateLabel = (dateStr) => {
-    const d = new Date(dateStr);
+    const d = safeDate(dateStr);
+    if (!d) return 'Unknown Date';
     const today = new Date();
     const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
     if (d.toDateString() === today.toDateString()) return 'Today';
@@ -110,7 +117,7 @@ export default function ApprovalHistory({ navigation }) {
     let lastDate = '';
     let headerCounter = 0;
     for (const h of history) {
-      const dateLabel = getDateLabel(h.updated_at || h.created_at);
+      const dateLabel = getDateLabel(h.responded_at || h.created_at);
       if (dateLabel !== lastDate) {
         headerCounter++;
         items.push({ type: 'header', label: dateLabel, id: `header-${headerCounter}-${dateLabel}` });
@@ -159,7 +166,7 @@ export default function ApprovalHistory({ navigation }) {
             </View>
             <View style={styles.phoneLine}>
               <Text style={styles.phone}>📱 {h.visitor_phone}</Text>
-              <TouchableOpacity onPress={() => Linking.openURL(`tel:${h.visitor_phone}`)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <TouchableOpacity onPress={() => h.visitor_phone && Linking.openURL(`tel:${h.visitor_phone}`)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Ionicons name="call" size={15} color={Colors.primary} />
               </TouchableOpacity>
             </View>

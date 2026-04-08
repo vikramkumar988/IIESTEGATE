@@ -674,18 +674,20 @@ exports.getStaffHistory = async (req, res, next) => {
       query += ` AND vr.status != 'pending'`;
     }
 
-    // Date filters — IST timezone-aware to match Indian dates accurately
+    // Date filters — IST timezone-aware using a stable timeline field:
+    // responded_at for acted requests, otherwise created_at.
+    // Avoid using updated_at because cron/status updates can shift records across days.
     if (date_from) {
       params.push(date_from);
-      query += ` AND (vr.updated_at AT TIME ZONE 'Asia/Kolkata')::date >= $${params.length}::date`;
+      query += ` AND (COALESCE(vr.responded_at, vr.created_at) AT TIME ZONE 'Asia/Kolkata')::date >= $${params.length}::date`;
     }
     if (date_to) {
       params.push(date_to);
-      query += ` AND (vr.updated_at AT TIME ZONE 'Asia/Kolkata')::date <= $${params.length}::date`;
+      query += ` AND (COALESCE(vr.responded_at, vr.created_at) AT TIME ZONE 'Asia/Kolkata')::date <= $${params.length}::date`;
     }
 
-    // ORDER BY updated_at so recently-acted-upon requests come first
-    query += ` ORDER BY vr.updated_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    // Order by the same stable timeline field used in filtering.
+    query += ` ORDER BY COALESCE(vr.responded_at, vr.created_at) DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(parseInt(limit), parseInt(offset));
 
     const result = await pool.query(query, params);
@@ -706,11 +708,11 @@ exports.getStaffHistory = async (req, res, next) => {
 
     if (date_from) {
       countParams.push(date_from);
-      countsQuery += ` AND (vr.updated_at AT TIME ZONE 'Asia/Kolkata')::date >= $${countParams.length}::date`;
+      countsQuery += ` AND (COALESCE(vr.responded_at, vr.created_at) AT TIME ZONE 'Asia/Kolkata')::date >= $${countParams.length}::date`;
     }
     if (date_to) {
       countParams.push(date_to);
-      countsQuery += ` AND (vr.updated_at AT TIME ZONE 'Asia/Kolkata')::date <= $${countParams.length}::date`;
+      countsQuery += ` AND (COALESCE(vr.responded_at, vr.created_at) AT TIME ZONE 'Asia/Kolkata')::date <= $${countParams.length}::date`;
     }
 
     const countsResult = await pool.query(countsQuery, countParams);
