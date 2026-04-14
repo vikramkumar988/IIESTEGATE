@@ -35,14 +35,22 @@ exports.createPreRegistration = async (req, res, next) => {
       staff_id, purpose, scheduled_date, scheduled_time, notes,
     } = req.body;
 
-    // Process uploaded photo: compress and store as base64 data URI in DB
-    // (multer uses memoryStorage, so req.file.buffer is available — NOT req.file.filename)
+    // Process photo: accept EITHER multer file upload OR base64 string from JSON body
     let photo_url = null;
     if (req.file) {
+      // Traditional multipart upload
       try {
         photo_url = await processAndEncodeImage(req.file.buffer, req.file.mimetype);
       } catch (imgErr) {
         console.log('Pre-reg image processing error (non-fatal):', imgErr.message);
+      }
+    } else if (req.body.photo_base64) {
+      // Base64 string from client-side compression (JSON body)
+      const b64 = req.body.photo_base64;
+      if (b64.startsWith('data:image/')) {
+        photo_url = b64; // Already a data URI
+      } else {
+        photo_url = `data:image/jpeg;base64,${b64}`;
       }
     }
 

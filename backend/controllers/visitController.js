@@ -1307,3 +1307,115 @@ exports.getVisitorProfile = async (req, res, next) => {
   }
 };
 
+// ============================================================
+// Unified Daily Records — all roles use this single endpoint
+// GET /api/visits/daily-records?date=2026-04-14&status=approved
+// ============================================================
+exports.getDailyRecords = async (req, res, next) => {
+  try {
+    const { date, status } = req.query;
+    const userRole = req.user.role;
+    const userId = req.user.id;
+
+    // Default to today if no date
+    const targetDate = date || new Date().toISOString().split('T')[0];
+
+    let query = `
+      SELECT vr.id, vr.status, vr.purpose, vr.notes, vr.reject_reason, vr.approval_message,
+             vr.meeting_status, vr.meeting_confirmed_at, vr.pre_visit,
+             vr.requested_at, vr.responded_at, vr.valid_until, vr.created_at,
+             v.id as visitor_id, v.full_name as visitor_name, v.phone as visitor_phone,
+             v.photo_url as visitor_photo, v.id_type as visitor_id_type, v.id_number as visitor_id_number,
+             v.address as visitor_address,
+             g.full_name as guard_name, g.gate_assigned,
+             s.full_name as staff_name, s.department as staff_department, s.designation as staff_designation,
+             gp.entry_time, gp.exit_time, gp.sms_sent, gp.pass_code, gp.status as pass_status,
+             gp.valid_until as pass_valid_until, gp.id as gate_pass_id,
+             CASE WHEN vr.responded_at IS NOT NULL AND vr.requested_at IS NOT NULL
+               THEN EXTRACT(EPOCH FROM (vr.responded_at - vr.requested_at)) / 60.0
+               ELSE NULL
+             END as response_time_minutes,
+             (SELECT COUNT(*) FROM visit_requests vr2 WHERE vr2.visitor_id = vr.visitor_id) as visit_count
+      FROM visit_requests vr
+      JOIN visitors v ON vr.visitor_id = v.id
+      JOIN users g ON vr.guard_id = g.id
+      JOIN users s ON vr.staff_id = s.id
+      LEFT JOIN (
+        SELECT DISTINCT ON (visit_request_id) *
+        FROM gate_passes
+        ORDER BY visit_request_id, created_at DESC
+      ) gp ON gp.visit_request_id = vr.id
+      WHERE (vr.created_at + INTERVAL '5 hours 30 minutes')::date = $1::date
+    `;
+    const params = [targetDate];
+
+    // Role filtering
+    if (userRole === 'guard') {
+      params.push(userId);
+      query += ` AND vr.guard_id = $${params.length}`;
+    } else if (userRole === 'staff') {
+      params.push(userId);
+      query += ` AND vr.staff_id = $${params.length}`;
+    }
+    // admin sees all
+
+    // Status filter
+    if (status && status !== 'all') {
+      if (status === 'approved') {
+        query += ` AND (vr.status = 'approved' OR (vr.status = 'expired' AND vr.responded_at IS NOT NULL))`;
+      } else if (status === 'expired') {
+        query += ` AND vr.status = 'expired' AND vr.responded_at IS NULL`;
+      } else {
+        params.push(status);
+        query += ` AND vr.status = $${params.length}`;
+      }
+    }
+
+    query += ` ORDER BY vr.created_at DESC LIMIT 200`;
+
+    const result = await pool.query(query, params);
+
+    // Summary counts for the date
+    let countsQuery = `
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE vr.status = 'approved' OR (vr.status = 'expired' AND vr.responded_at IS NOT NULL)) as approved,
+        COUNT(*) FILTER (WHERE vr.status = 'rejected') as rejected,
+        COUNT(*) FILTER (WHERE vr.status = 'pending') as pending,
+        COUNT(*) FILTER (WHERE vr.status = 'expired' AND vr.responded_at IS NULL) as missed,
+        COUNT(*) FILTER (WHERE vr.status = 'cancelled') as cancelled
+      FROM visit_requests vr
+      WHERE (vr.created_at + INTERVAL '5 hours 30 minutes')::date = $1::date
+    `;
+    const countParams = [targetDate];
+
+    if (userRole === 'guard') {
+      countParams.push(userId);
+      countsQuery += ` AND vr.guard_id = $${countParams.length}`;
+    } else if (userRole === 'staff') {
+      countParams.push(userId);
+      countsQuery += ` AND vr.staff_id = $${countParams.length}`;
+    }
+
+    const countsResult = await pool.query(countsQuery, countParams);
+    const counts = countsResult.rows[0] || {};
+
+    res.json({
+      success: true,
+      data: {
+        date: targetDate,
+        records: result.rows,
+        summary: {
+          total: parseInt(counts.total || 0),
+          approved: parseInt(counts.approved || 0),
+          rejected: parseInt(counts.rejected || 0),
+          pending: parseInt(counts.pending || 0),
+          missed: parseInt(counts.missed || 0),
+          cancelled: parseInt(counts.cancelled || 0),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

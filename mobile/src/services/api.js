@@ -99,10 +99,11 @@ export const visitService = {
   lookupVisitor: (phone) => api.get('/visits/lookup-visitor', { params: { phone } }),
   guardHistory: (params) => api.get('/visits/guard-history', { params }),
   searchVisitors: (q) => api.get('/visits/search-visitor', { params: { q } }),
-  // New enterprise endpoints
+  // Enterprise endpoints
   referVisitor: (id, data) => api.post(`/visits/${id}/refer`, data),
   getStaffActive: () => api.get('/visits/staff-active'),
   getVisitorProfile: (visitorId) => api.get(`/visits/visitor-profile/${visitorId}`),
+  getDailyRecords: (params) => api.get('/visits/daily-records', { params }),
 };
 
 // ============== GENERAL VISITS ==============

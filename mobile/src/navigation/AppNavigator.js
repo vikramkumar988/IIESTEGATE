@@ -17,13 +17,11 @@ import GuardDashboard from '../screens/guard/GuardDashboard';
 import CreateVisitRequest from '../screens/guard/CreateVisitRequest';
 import CreateGeneralVisit from '../screens/guard/CreateGeneralVisit';
 import ScanQR from '../screens/guard/ScanQR';
-import GuardHistory from '../screens/guard/GuardHistory';
 import GenerateQR from '../screens/guard/GenerateQR';
 import EditVisitRequest from '../screens/guard/EditVisitRequest';
 
 // Staff
 import StaffDashboard from '../screens/staff/StaffDashboard';
-import ApprovalHistory from '../screens/staff/ApprovalHistory';
 import RequestDetail from '../screens/staff/RequestDetail';
 
 // Admin
@@ -31,12 +29,12 @@ import AdminDashboard from '../screens/admin/AdminDashboard';
 import UserManagement from '../screens/admin/UserManagement';
 import AllVisits from '../screens/admin/AllVisits';
 import PendingUsers from '../screens/admin/PendingUsers';
-import DayWiseRecords from '../screens/admin/DayWiseRecords';
 import ActivityLogScreen from '../screens/admin/ActivityLogScreen';
 import VisitDetail from '../screens/admin/VisitDetail';
 import UserDetailScreen from '../screens/admin/UserDetailScreen';
 
-// Common
+// Common (shared)
+import VisitHistory from '../screens/common/VisitHistory';
 import NotificationsScreen from '../screens/common/NotificationsScreen';
 import ProfileScreen from '../screens/common/ProfileScreen';
 
@@ -54,27 +52,22 @@ const tabScreenOptions = ({ route }) => ({
     backgroundColor: Colors.surface,
     borderTopColor: Colors.border,
     borderTopWidth: 1,
-    height: 65,
-    paddingBottom: 8,
-    paddingTop: 8,
+    height: 62,
+    paddingBottom: 6,
+    paddingTop: 6,
   },
   tabBarActiveTintColor: Colors.primary,
   tabBarInactiveTintColor: Colors.textMuted,
-  tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
-  tabBarIcon: ({ focused, color, size }) => {
+  tabBarLabelStyle: { fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
+  tabBarIcon: ({ focused, color }) => {
     const icons = {
-      // Guard
       Dashboard: focused ? 'home' : 'home-outline',
       Scan: focused ? 'qr-code' : 'qr-code-outline',
       History: focused ? 'time' : 'time-outline',
       Profile: focused ? 'person' : 'person-outline',
-      // Staff
-      Requests: focused ? 'document-text' : 'document-text-outline',
-      // Admin
       Users: focused ? 'people' : 'people-outline',
-      Visits: focused ? 'document-text' : 'document-text-outline',
     };
-    return <Ionicons name={icons[route.name] || 'ellipse'} size={22} color={color} />;
+    return <Ionicons name={icons[route.name] || 'ellipse'} size={21} color={color} />;
   },
 });
 
@@ -84,7 +77,7 @@ function GuardTabs() {
     <Tab.Navigator screenOptions={tabScreenOptions}>
       <Tab.Screen name="Dashboard" component={GuardDashboard} />
       <Tab.Screen name="Scan" component={ScanQR} />
-      <Tab.Screen name="History" component={GuardHistory} />
+      <Tab.Screen name="History" component={VisitHistory} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
@@ -95,7 +88,7 @@ function StaffTabs() {
   return (
     <Tab.Navigator screenOptions={tabScreenOptions}>
       <Tab.Screen name="Dashboard" component={StaffDashboard} />
-      <Tab.Screen name="History" component={ApprovalHistory} />
+      <Tab.Screen name="History" component={VisitHistory} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
@@ -107,7 +100,7 @@ function AdminTabs() {
     <Tab.Navigator screenOptions={tabScreenOptions}>
       <Tab.Screen name="Dashboard" component={AdminDashboard} />
       <Tab.Screen name="Users" component={UserManagement} />
-      <Tab.Screen name="Visits" component={AllVisits} />
+      <Tab.Screen name="History" component={VisitHistory} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
@@ -144,15 +137,13 @@ export default function AppNavigator() {
             <Stack.Screen name="CreateVisitRequest" component={CreateVisitRequest} />
             <Stack.Screen name="CreateGeneralVisit" component={CreateGeneralVisit} />
             <Stack.Screen name="ScanQR" component={ScanQR} />
-            <Stack.Screen name="GuardHistory" component={GuardHistory} />
             <Stack.Screen name="GenerateQR" component={GenerateQR} />
             <Stack.Screen name="EditVisitRequest" component={EditVisitRequest} />
             <Stack.Screen name="RequestDetail" component={RequestDetail} />
-            <Stack.Screen name="ApprovalHistory" component={ApprovalHistory} />
+            <Stack.Screen name="VisitHistory" component={VisitHistory} />
             <Stack.Screen name="UserManagement" component={UserManagement} />
             <Stack.Screen name="AllVisits" component={AllVisits} />
             <Stack.Screen name="PendingUsers" component={PendingUsers} />
-            <Stack.Screen name="DayWiseRecords" component={DayWiseRecords} />
             <Stack.Screen name="ActivityLog" component={ActivityLogScreen} />
             <Stack.Screen name="VisitDetail" component={VisitDetail} />
             <Stack.Screen name="UserDetail" component={UserDetailScreen} />

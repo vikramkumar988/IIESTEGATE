@@ -14,6 +14,7 @@ router.get('/guard-history', authenticate, roleCheck('guard', 'admin'), visitCon
 router.get('/search-visitor', authenticate, roleCheck('guard', 'admin'), visitController.searchVisitors);
 router.get('/staff-active', authenticate, roleCheck('staff'), visitController.getStaffActiveVisitors);
 router.get('/visitor-profile/:visitorId', authenticate, visitController.getVisitorProfile);
+router.get('/daily-records', authenticate, visitController.getDailyRecords);
 router.get('/:id', authenticate, visitController.getVisitRequest);
 router.put('/:id/edit', authenticate, roleCheck('guard'), visitController.editVisitRequest);
 router.put('/:id/re-raise', authenticate, roleCheck('guard'), visitController.reRaiseRequest);

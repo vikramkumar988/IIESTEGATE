@@ -268,27 +268,28 @@ exports.renderFormPage = async (req, res) => {
       btn.innerHTML = '<span class="spinner"></span> Submitting...';
 
       try {
-        var formData = new FormData();
-        formData.append('visitor_name', name);
-        formData.append('visitor_phone', phone);
-        formData.append('visitor_email', this.querySelector('[name="visitor_email"]').value.trim());
-        formData.append('visitor_id_type', this.querySelector('[name="visitor_id_type"]').value);
-        formData.append('visitor_id_number', this.querySelector('[name="visitor_id_number"]').value.trim());
-        formData.append('visitor_address', this.querySelector('[name="visitor_address"]').value.trim());
-        formData.append('staff_id', staffId);
-        formData.append('purpose', purpose);
-        formData.append('scheduled_date', this.querySelector('[name="scheduled_date"]').value);
-        formData.append('scheduled_time', this.querySelector('[name="scheduled_time"]').value);
-        formData.append('notes', this.querySelector('[name="notes"]').value.trim());
+        // Build JSON body instead of FormData (more reliable on mobile browsers)
+        var payload = {
+          visitor_name: name,
+          visitor_phone: phone,
+          visitor_email: this.querySelector('[name="visitor_email"]').value.trim(),
+          visitor_id_type: this.querySelector('[name="visitor_id_type"]').value,
+          visitor_id_number: this.querySelector('[name="visitor_id_number"]').value.trim(),
+          visitor_address: this.querySelector('[name="visitor_address"]').value.trim(),
+          staff_id: staffId,
+          purpose: purpose,
+          scheduled_date: this.querySelector('[name="scheduled_date"]').value,
+          scheduled_time: this.querySelector('[name="scheduled_time"]').value,
+          notes: this.querySelector('[name="notes"]').value.trim(),
+        };
 
-        if (capturedPhotoBlob) {
-          formData.append('photo', capturedPhotoBlob, 'visitor_photo.jpg');
-        }
-
-        fetch('/api/pre-register', {
-          method: 'POST',
-          body: formData,
-        })
+        // Convert photo blob to base64 data URI if captured
+        var sendRequest = function(body) {
+          fetch('/api/pre-register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
         .then(function(response) {
           if (!response.ok && response.status >= 500) {
             throw new Error('Server error (status ' + response.status + '). Please try again.');
@@ -316,6 +317,24 @@ exports.renderFormPage = async (req, res) => {
           btn.disabled = false;
           btn.textContent = 'Submit Pre-Registration';
         });
+        }; // end sendRequest
+
+        // If we have a photo, convert blob to base64 then send
+        if (capturedPhotoBlob) {
+          var reader = new FileReader();
+          reader.onload = function(ev) {
+            payload.photo_base64 = ev.target.result; // data:image/jpeg;base64,...
+            sendRequest(payload);
+          };
+          reader.onerror = function() {
+            // Send without photo if conversion fails
+            console.log('Photo conversion failed, sending without photo');
+            sendRequest(payload);
+          };
+          reader.readAsDataURL(capturedPhotoBlob);
+        } else {
+          sendRequest(payload);
+        }
       } catch (err) {
         console.error('Initial submit error:', err);
         errorDiv.textContent = 'An unexpected error occurred: ' + err.message;
