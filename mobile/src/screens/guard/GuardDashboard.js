@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Image, Alert, Share, Linking, TextInput, Modal, Dimensions, Vibration } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import { Card, Badge, LoadingScreen, EmptyState, Button } from '../../components';
 import { visitService, notificationService, dashboardService, userService, gatePassService, getPreRegUrl } from '../../services/api';
