@@ -174,8 +174,33 @@ exports.renderFormPage = async (req, res) => {
   </div>
 
   <script>
-    // ===== PHOTO HANDLING =====
+    // ===== PHOTO HANDLING WITH CLIENT-SIDE COMPRESSION =====
     var capturedPhotoBlob = null;
+
+    function compressPhoto(file, maxWidth, quality) {
+      return new Promise(function(resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+          var img = new Image();
+          img.onload = function() {
+            var canvas = document.createElement('canvas');
+            var w = img.width, h = img.height;
+            if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+            canvas.width = w; canvas.height = h;
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            canvas.toBlob(function(blob) {
+              if (blob) resolve(blob);
+              else reject(new Error('Photo compression failed'));
+            }, 'image/jpeg', quality);
+          };
+          img.onerror = function() { reject(new Error('Failed to load image')); };
+          img.src = ev.target.result;
+        };
+        reader.onerror = function() { reject(new Error('Failed to read file')); };
+        reader.readAsDataURL(file);
+      });
+    }
 
     function processPhoto(file) {
       var errorDiv = document.getElementById('errorMsg');
@@ -189,22 +214,23 @@ exports.renderFormPage = async (req, res) => {
         return;
       }
 
-      // Store the raw file to be submitted
-      capturedPhotoBlob = file;
-
-      // Show preview
+      // Show immediate preview
       var reader = new FileReader();
       reader.onload = function(ev) {
         var preview = document.getElementById('photoPreview');
         preview.innerHTML = '<img src="' + ev.target.result + '" alt="Your Photo">';
         preview.classList.add('has-photo');
       };
-      reader.onerror = function() {
-        errorDiv.textContent = 'Failed to load preview, but file is selected.';
-        errorDiv.style.display = 'block';
-        window.scrollTo(0,0);
-      };
       reader.readAsDataURL(file);
+
+      // Compress for upload (800px wide, 70% quality JPEG)
+      compressPhoto(file, 800, 0.7).then(function(blob) {
+        capturedPhotoBlob = blob;
+        console.log('Photo compressed: ' + (blob.size / 1024).toFixed(0) + 'KB');
+      }).catch(function(err) {
+        console.log('Compression failed, using original:', err.message);
+        capturedPhotoBlob = file;
+      });
     }
 
     document.getElementById('cameraInput').addEventListener('change', function(e) {
@@ -264,6 +290,9 @@ exports.renderFormPage = async (req, res) => {
           body: formData,
         })
         .then(function(response) {
+          if (!response.ok && response.status >= 500) {
+            throw new Error('Server error (status ' + response.status + '). Please try again.');
+          }
           return response.json().catch(function() {
             throw new Error('Server error (status ' + response.status + ')');
           });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../theme';
@@ -63,6 +63,16 @@ export default function DateRangePicker({ onDateChange, initialPreset = 'today',
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [dateRange, setDateRange] = useState(getPresetDates(initialPreset));
+
+  // Fire onDateChange on mount so parent loads data immediately
+  useEffect(() => {
+    const dates = getPresetDates(initialPreset);
+    onDateChange?.({
+      date_from: toAPIDate(dates.from),
+      date_to: toAPIDate(dates.to),
+      preset: initialPreset,
+    });
+  }, []);
 
   const handlePresetSelect = (key) => {
     if (key === 'custom') {
