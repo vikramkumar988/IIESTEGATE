@@ -4,6 +4,7 @@ const { logActivity } = require('../utils/activityLogger');
 const { generatePassCode, generateQRCode } = require('../utils/qrGenerator');
 const { sendPreRegApprovalSMS } = require('../utils/smsService');
 const { sendPreRegStatusEmail } = require('../utils/emailService');
+const { processAndEncodeImage } = require('../utils/imageProcessor');
 const SERVER_PUBLIC_URL = process.env.SERVER_PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // ============================================================
@@ -34,7 +35,16 @@ exports.createPreRegistration = async (req, res, next) => {
       staff_id, purpose, scheduled_date, scheduled_time, notes,
     } = req.body;
 
-    const photo_url = req.file ? `/uploads/${req.file.filename}` : null;
+    // Process uploaded photo: compress and store as base64 data URI in DB
+    // (multer uses memoryStorage, so req.file.buffer is available — NOT req.file.filename)
+    let photo_url = null;
+    if (req.file) {
+      try {
+        photo_url = await processAndEncodeImage(req.file.buffer, req.file.mimetype);
+      } catch (imgErr) {
+        console.log('Pre-reg image processing error (non-fatal):', imgErr.message);
+      }
+    }
 
     // Validate required fields
     if (!visitor_name || !visitor_phone || !staff_id || !purpose || !scheduled_date) {

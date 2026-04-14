@@ -372,3 +372,215 @@ exports.liftLockdown = async (req, res, next) => {
     next(error);
   }
 };
+
+// ============== DATE RANGE REPORT (Admin) ==============
+exports.getDateRangeReport = async (req, res, next) => {
+  try {
+    const { date_from, date_to } = req.query;
+    
+    if (!date_from || !date_to) {
+      return res.status(400).json({ success: false, message: 'date_from and date_to are required' });
+    }
+
+    const from = new Date(date_from);
+    const to = new Date(date_to);
+    to.setHours(23, 59, 59, 999);
+
+    const [
+      totalVisits, approvedVisits, rejectedVisits,
+      generalVisits, uniqueVisitors, 
+      entries, exits, avgDuration,
+      peakHours, staffBreakdown, guardBreakdown
+    ] = await Promise.all([
+      pool.query(`SELECT COUNT(*) FROM visit_requests WHERE created_at BETWEEN $1 AND $2`, [from, to]),
+      pool.query(`SELECT COUNT(*) FROM visit_requests WHERE status = 'approved' AND created_at BETWEEN $1 AND $2`, [from, to]),
+      pool.query(`SELECT COUNT(*) FROM visit_requests WHERE status = 'rejected' AND created_at BETWEEN $1 AND $2`, [from, to]),
+      pool.query(`SELECT COUNT(*) FROM general_visits WHERE created_at BETWEEN $1 AND $2`, [from, to]),
+      pool.query(`SELECT COUNT(DISTINCT visitor_id) FROM visit_requests WHERE created_at BETWEEN $1 AND $2`, [from, to]),
+      pool.query(`SELECT COUNT(*) FROM gate_passes WHERE entry_time BETWEEN $1 AND $2`, [from, to]),
+      pool.query(`SELECT COUNT(*) FROM gate_passes WHERE exit_time BETWEEN $1 AND $2`, [from, to]),
+      pool.query(`SELECT AVG(EXTRACT(EPOCH FROM (exit_time - entry_time)) / 60.0) as avg_minutes
+                  FROM gate_passes WHERE entry_time BETWEEN $1 AND $2 AND exit_time IS NOT NULL`, [from, to]),
+      // Peak hours
+      pool.query(`SELECT EXTRACT(HOUR FROM entry_time) as hour, COUNT(*) as count
+                  FROM gate_passes WHERE entry_time BETWEEN $1 AND $2
+                  GROUP BY hour ORDER BY count DESC LIMIT 5`, [from, to]),
+      // Staff breakdown
+      pool.query(`SELECT s.full_name, s.department, 
+                    COUNT(*) as total_requests,
+                    COUNT(*) FILTER (WHERE vr.status = 'approved') as approved,
+                    COUNT(*) FILTER (WHERE vr.status = 'rejected') as rejected,
+                    AVG(CASE WHEN vr.responded_at IS NOT NULL 
+                      THEN EXTRACT(EPOCH FROM (vr.responded_at - vr.requested_at)) / 60.0 END) as avg_response_min
+                  FROM visit_requests vr JOIN users s ON vr.staff_id = s.id
+                  WHERE vr.created_at BETWEEN $1 AND $2
+                  GROUP BY s.id, s.full_name, s.department ORDER BY total_requests DESC LIMIT 15`, [from, to]),
+      // Guard breakdown
+      pool.query(`SELECT g.full_name, g.gate_assigned,
+                    COUNT(*) as requests_created,
+                    COUNT(DISTINCT sl.id) as scans_performed
+                  FROM visit_requests vr JOIN users g ON vr.guard_id = g.id
+                  LEFT JOIN scan_logs sl ON sl.scanned_by = g.id AND sl.scanned_at BETWEEN $3 AND $4
+                  WHERE vr.created_at BETWEEN $1 AND $2
+                  GROUP BY g.id, g.full_name, g.gate_assigned ORDER BY requests_created DESC LIMIT 10`, [from, to, from, to]),
+    ]);
+
+    // Repeat visitors
+    const repeatVisitors = await pool.query(
+      `SELECT v.full_name, v.phone, COUNT(*) as visit_count
+       FROM visit_requests vr JOIN visitors v ON vr.visitor_id = v.id
+       WHERE vr.created_at BETWEEN $1 AND $2
+       GROUP BY v.id, v.full_name, v.phone HAVING COUNT(*) > 1
+       ORDER BY visit_count DESC LIMIT 10`, [from, to]
+    );
+
+    // Visit type distribution
+    const typeDistribution = await pool.query(
+      `SELECT 
+         COUNT(*) FILTER (WHERE vr.pre_visit = true) as pre_registered,
+         COUNT(*) FILTER (WHERE vr.pre_visit = false OR vr.pre_visit IS NULL) as walk_in,
+         COUNT(*) FILTER (WHERE vr.referred_by_staff IS NOT NULL) as referrals
+       FROM visit_requests vr WHERE vr.created_at BETWEEN $1 AND $2`, [from, to]
+    );
+
+    // Daily breakdown for chart
+    const dailyBreakdown = await pool.query(
+      `SELECT DATE(created_at) as date, COUNT(*) as count
+       FROM visit_requests WHERE created_at BETWEEN $1 AND $2
+       GROUP BY DATE(created_at) ORDER BY date ASC`, [from, to]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        report: {
+          date_from: date_from,
+          date_to: date_to,
+          total_professor_visits: parseInt(totalVisits.rows[0].count),
+          total_general_visits: parseInt(generalVisits.rows[0].count),
+          total_approved: parseInt(approvedVisits.rows[0].count),
+          total_rejected: parseInt(rejectedVisits.rows[0].count),
+          unique_visitors: parseInt(uniqueVisitors.rows[0].count),
+          total_entries: parseInt(entries.rows[0].count),
+          total_exits: parseInt(exits.rows[0].count),
+          avg_visit_duration_min: avgDuration.rows[0]?.avg_minutes 
+            ? parseFloat(avgDuration.rows[0].avg_minutes).toFixed(1) : null,
+          peak_hours: peakHours.rows.map(r => ({ hour: parseInt(r.hour), count: parseInt(r.count) })),
+          staff_breakdown: staffBreakdown.rows,
+          guard_breakdown: guardBreakdown.rows,
+          repeat_visitors: repeatVisitors.rows,
+          type_distribution: typeDistribution.rows[0] || {},
+          daily_breakdown: dailyBreakdown.rows,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============== SCAN LOGS (Admin) ==============
+exports.getScanLogs = async (req, res, next) => {
+  try {
+    const { date_from, date_to, guard_id, scan_type, page = 1, limit = 50 } = req.query;
+    const offset = (page - 1) * limit;
+    const params = [];
+    const conditions = [];
+
+    if (date_from) {
+      conditions.push(`sl.scanned_at >= $${params.length + 1}`);
+      params.push(new Date(date_from));
+    }
+    if (date_to) {
+      const to = new Date(date_to);
+      to.setHours(23, 59, 59, 999);
+      conditions.push(`sl.scanned_at <= $${params.length + 1}`);
+      params.push(to);
+    }
+    if (guard_id) {
+      conditions.push(`sl.scanned_by = $${params.length + 1}`);
+      params.push(guard_id);
+    }
+    if (scan_type) {
+      conditions.push(`sl.scan_type = $${params.length + 1}`);
+      params.push(scan_type);
+    }
+
+    let query = `
+      SELECT sl.*, 
+             u.full_name as scanned_by_name, u.gate_assigned,
+             gp.pass_code, gp.status as pass_status,
+             v.full_name as visitor_name, v.phone as visitor_phone
+      FROM scan_logs sl
+      JOIN users u ON sl.scanned_by = u.id
+      JOIN gate_passes gp ON sl.gate_pass_id = gp.id
+      JOIN visitors v ON gp.visitor_id = v.id
+    `;
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ` ORDER BY sl.scanned_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(parseInt(limit), parseInt(offset));
+
+    const result = await pool.query(query, params);
+
+    // Total count for pagination
+    let countQuery = `SELECT COUNT(*) FROM scan_logs sl`;
+    if (conditions.length > 0) {
+      countQuery += ' WHERE ' + conditions.join(' AND ');
+    }
+    const countResult = await pool.query(countQuery, params.slice(0, -2));
+
+    res.json({
+      success: true,
+      data: {
+        scan_logs: result.rows,
+        total: parseInt(countResult.rows[0].count),
+        page: parseInt(page),
+        limit: parseInt(limit),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============== STAFF PERFORMANCE (Admin) ==============
+exports.getStaffPerformance = async (req, res, next) => {
+  try {
+    const { date_from, date_to } = req.query;
+    const from = date_from ? new Date(date_from) : new Date(new Date().setDate(new Date().getDate() - 30));
+    const to = date_to ? new Date(date_to) : new Date();
+    to.setHours(23, 59, 59, 999);
+
+    const result = await pool.query(
+      `SELECT s.id, s.full_name, s.department, s.designation,
+              COUNT(*) as total_requests,
+              COUNT(*) FILTER (WHERE vr.status = 'approved') as approved,
+              COUNT(*) FILTER (WHERE vr.status = 'rejected') as rejected,
+              ROUND(100.0 * COUNT(*) FILTER (WHERE vr.status = 'approved') / NULLIF(COUNT(*), 0), 1) as approval_rate,
+              AVG(CASE WHEN vr.responded_at IS NOT NULL AND vr.requested_at IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (vr.responded_at - vr.requested_at)) / 60.0 END) as avg_response_min,
+              MIN(CASE WHEN vr.responded_at IS NOT NULL AND vr.requested_at IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (vr.responded_at - vr.requested_at)) / 60.0 END) as min_response_min,
+              MAX(CASE WHEN vr.responded_at IS NOT NULL AND vr.requested_at IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (vr.responded_at - vr.requested_at)) / 60.0 END) as max_response_min,
+              COUNT(DISTINCT vr.visitor_id) as unique_visitors
+       FROM visit_requests vr
+       JOIN users s ON vr.staff_id = s.id
+       WHERE vr.created_at BETWEEN $1 AND $2
+       GROUP BY s.id, s.full_name, s.department, s.designation
+       ORDER BY total_requests DESC`,
+      [from, to]
+    );
+
+    res.json({
+      success: true,
+      data: { staff_performance: result.rows, date_from: from, date_to: to },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

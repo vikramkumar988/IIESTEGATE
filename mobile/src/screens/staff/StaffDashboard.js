@@ -73,6 +73,8 @@ export default function StaffDashboard({ navigation }) {
   const [availability, setAvailability] = useState(user?.availability || 'available');
   const [lockdown, setLockdown] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [activeVisitors, setActiveVisitors] = useState([]);
+  const [activeVisitorsSummary, setActiveVisitorsSummary] = useState({ inside: 0, left: 0, not_entered: 0, total: 0 });
   
   // Reject modal state
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
@@ -107,7 +109,7 @@ export default function StaffDashboard({ navigation }) {
   const loadData = useCallback(async () => {
     try {
       const today = getToday();
-      const [pendingRes, approvedTodayRes, rejectedTodayRes, notifRes, lockdownRes, preRegRes] = await Promise.all([
+      const [pendingRes, approvedTodayRes, rejectedTodayRes, notifRes, lockdownRes, preRegRes, activeRes] = await Promise.all([
         visitService.getStaffHistory({ limit: 100, status: 'pending' }),
         // FIX: Use backend date filters instead of fragile client-side filtering
         visitService.getStaffHistory({ limit: 50, status: 'approved', date_from: today, date_to: today }),
@@ -115,6 +117,7 @@ export default function StaffDashboard({ navigation }) {
         notificationService.getUnreadCount(),
         dashboardService.getLockdownStatus().catch(() => ({ data: { data: { is_lockdown: false } } })),
         preRegService.getPending().catch(() => ({ data: { data: { pre_registrations: [] } } })),
+        visitService.getStaffActive().catch(() => ({ data: { data: { visitors: [], summary: { inside: 0, left: 0, not_entered: 0, total: 0 } } } })),
       ]);
 
       const pending = pendingRes.data?.data?.history || [];
@@ -125,6 +128,8 @@ export default function StaffDashboard({ navigation }) {
       setUnreadCount(notifRes.data?.data?.count || 0);
       setLockdown(lockdownRes.data?.data?.is_lockdown ? lockdownRes.data.data.lockdown : null);
       setPreVisitData(preVisits);
+      setActiveVisitors(activeRes.data?.data?.visitors || []);
+      setActiveVisitorsSummary(activeRes.data?.data?.summary || { inside: 0, left: 0, not_entered: 0, total: 0 });
       setLastRefresh(new Date());
 
       // Calculate average response time from today's approved requests
@@ -288,6 +293,31 @@ export default function StaffDashboard({ navigation }) {
         <Ionicons name="chevron-forward" size={14} color="#a78bfa" />
       </TouchableOpacity>
 
+      {/* Quick Actions Row */}
+      <View style={styles.quickActionsRow}>
+        <TouchableOpacity style={styles.quickActionBtn} onPress={() => navigation.navigate('ScanQR', { mode: 'verify' })}>
+          <View style={[styles.quickActionIcon, { backgroundColor: '#3b82f615' }]}>
+            <Ionicons name="qr-code" size={20} color="#3b82f6" />
+          </View>
+          <Text style={styles.quickActionLabel}>Scan QR</Text>
+          <Text style={styles.quickActionSub}>Verify visitor</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.quickActionBtn} onPress={() => setActiveTab('pending')}>
+          <View style={[styles.quickActionIcon, { backgroundColor: Colors.warning + '15' }]}>
+            <Ionicons name="hourglass" size={20} color={Colors.warning} />
+          </View>
+          <Text style={styles.quickActionLabel}>{stats.pending}</Text>
+          <Text style={styles.quickActionSub}>Pending</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.quickActionBtn} onPress={() => navigation.navigate('ApprovalHistory')}>
+          <View style={[styles.quickActionIcon, { backgroundColor: '#a78bfa15' }]}>
+            <Ionicons name="time" size={20} color="#a78bfa" />
+          </View>
+          <Text style={styles.quickActionLabel}>History</Text>
+          <Text style={styles.quickActionSub}>All records</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Availability Toggle */}
       <View style={styles.availRow}>
         {AVAIL_OPTIONS.map((opt) => (
@@ -313,6 +343,59 @@ export default function StaffDashboard({ navigation }) {
           <StatCard icon="checkmark-done" label="Cleared" value={stats.approvedToday} color={Colors.success} />
           <StatCard icon="close-circle" label="Denied" value={stats.rejectedToday} color={Colors.danger} />
         </View>
+
+        {/* Active Visitors Section */}
+        {activeVisitorsSummary.total > 0 && (
+          <View style={styles.activeVisitorsSection}>
+            <View style={styles.activeVisitorsHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={[styles.activeDot, { backgroundColor: activeVisitorsSummary.inside > 0 ? '#22c55e' : Colors.textMuted }]} />
+                <Text style={styles.activeVisitorsTitle}>Your Active Visitors</Text>
+              </View>
+              <View style={styles.activeVisitorsBadges}>
+                {activeVisitorsSummary.inside > 0 && (
+                  <View style={[styles.activeMiniPill, { backgroundColor: '#22c55e20', borderColor: '#22c55e50' }]}>
+                    <Text style={[styles.activeMiniText, { color: '#22c55e' }]}>🟢 {activeVisitorsSummary.inside} Inside</Text>
+                  </View>
+                )}
+                {activeVisitorsSummary.left > 0 && (
+                  <View style={[styles.activeMiniPill, { backgroundColor: '#ef444420', borderColor: '#ef444450' }]}>
+                    <Text style={[styles.activeMiniText, { color: '#ef4444' }]}>🔴 {activeVisitorsSummary.left} Left</Text>
+                  </View>
+                )}
+                {activeVisitorsSummary.not_entered > 0 && (
+                  <View style={[styles.activeMiniPill, { backgroundColor: '#f59e0b20', borderColor: '#f59e0b50' }]}>
+                    <Text style={[styles.activeMiniText, { color: '#f59e0b' }]}>⚪ {activeVisitorsSummary.not_entered} Awaiting</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+            {activeVisitors.filter(v => v.campus_status === 'inside').slice(0, 5).map((v, idx) => (
+              <TouchableOpacity key={`active-${v.request_id}-${idx}`} style={styles.activeVisitorRow}
+                onPress={() => navigation.navigate('RequestDetail', { requestId: v.request_id })}>
+                {v.visitor_photo ? (
+                  <Image source={{ uri: resolvePhotoUrl(v.visitor_photo) }} style={styles.activeAvatar} />
+                ) : (
+                  <View style={styles.activeAvatarPlaceholder}>
+                    <Text style={styles.activeAvatarInitial}>{v.visitor_name?.charAt(0)?.toUpperCase()}</Text>
+                  </View>
+                )}
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text style={styles.activeVisitorName}>{v.visitor_name}</Text>
+                  <Text style={styles.activeVisitorMeta}>
+                    {v.entry_time ? `Entered ${new Date(v.entry_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Not entered'}
+                    {v.minutes_inside ? ` • ${Math.round(v.minutes_inside)}m ago` : ''}
+                  </Text>
+                  {v.referred_by_name && <Text style={styles.activeVisitorMeta}>↩️ Referred by {v.referred_by_name}</Text>}
+                </View>
+                <View style={styles.activeStatusBadge}>
+                  <View style={[styles.activeStatusDot, { backgroundColor: v.campus_status === 'inside' ? '#22c55e' : v.campus_status === 'left' ? '#ef4444' : '#f59e0b' }]} />
+                  <Text style={styles.activeStatusText}>{v.campus_status === 'inside' ? 'Inside' : v.campus_status === 'left' ? 'Left' : 'Waiting'}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Today's Summary Card */}
         <View style={styles.dailySummary}>
@@ -632,4 +715,29 @@ const styles = StyleSheet.create({
   // Share Pre-Reg
   sharePreRegBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: Spacing.base, marginTop: Spacing.sm, paddingVertical: 12, backgroundColor: '#a78bfa12', borderWidth: 1, borderColor: '#a78bfa30', borderRadius: BorderRadius.md },
   sharePreRegText: { color: '#a78bfa', fontSize: FontSizes.sm, fontWeight: '700' },
+
+  // Quick Actions Row
+  quickActionsRow: { flexDirection: 'row', paddingHorizontal: Spacing.base, paddingTop: Spacing.md, gap: 10 },
+  quickActionBtn: { flex: 1, backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
+  quickActionIcon: { width: 42, height: 42, borderRadius: 21, justifyContent: 'center', alignItems: 'center', marginBottom: 6 },
+  quickActionLabel: { color: Colors.text, fontSize: FontSizes.md, fontWeight: '800' },
+  quickActionSub: { color: Colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 2 },
+
+  // Active Visitors Section
+  activeVisitorsSection: { backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.border, padding: Spacing.base },
+  activeVisitorsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: Spacing.sm },
+  activeVisitorsTitle: { color: Colors.text, fontSize: FontSizes.md, fontWeight: '800' },
+  activeVisitorsBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  activeDot: { width: 8, height: 8, borderRadius: 4 },
+  activeMiniPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: BorderRadius.full, borderWidth: 1 },
+  activeMiniText: { fontSize: 10, fontWeight: '700' },
+  activeVisitorRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.border + '50' },
+  activeAvatar: { width: 38, height: 38, borderRadius: 19 },
+  activeAvatarPlaceholder: { width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.primary + '20', justifyContent: 'center', alignItems: 'center' },
+  activeAvatarInitial: { color: Colors.primary, fontSize: 16, fontWeight: '800' },
+  activeVisitorName: { color: Colors.text, fontSize: 13, fontWeight: '700' },
+  activeVisitorMeta: { color: Colors.textMuted, fontSize: 11, marginTop: 1 },
+  activeStatusBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: BorderRadius.full, backgroundColor: Colors.background },
+  activeStatusDot: { width: 6, height: 6, borderRadius: 3 },
+  activeStatusText: { fontSize: 10, color: Colors.textSecondary, fontWeight: '700' },
 });

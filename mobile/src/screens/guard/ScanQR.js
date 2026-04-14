@@ -16,12 +16,13 @@ const SCAN_MODES = [
   { key: 'verify', label: 'Verify', icon: 'search-outline', color: Colors.primary },
 ];
 
-export default function ScanQR({ navigation }) {
+export default function ScanQR({ navigation, route }) {
+  const staffMode = route?.params?.mode === 'verify';
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState(null);
-  const [scanMode, setScanMode] = useState('entry');
+  const [scanMode, setScanMode] = useState(staffMode ? 'verify' : 'entry');
 
   const handleBarCodeScanned = async ({ type, data }) => {
     if (scanned || verifying) return;
@@ -267,7 +268,7 @@ export default function ScanQR({ navigation }) {
 
       {/* Scan Mode Toggle */}
       <View style={styles.modeRow}>
-        {SCAN_MODES.map((mode) => (
+        {(staffMode ? SCAN_MODES.filter(m => m.key === 'verify') : SCAN_MODES).map((mode) => (
           <TouchableOpacity
             key={mode.key}
             style={[styles.modeBtn, scanMode === mode.key && { backgroundColor: mode.color + '20', borderColor: mode.color }]}

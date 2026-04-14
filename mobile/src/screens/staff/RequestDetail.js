@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, Alert, TextInput, Modal, TouchableOpacity, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Header, Card, Badge, Button, LoadingScreen } from '../../components';
-import { visitService, getBaseUrl } from '../../services/api';
+import { visitService, userService, getBaseUrl } from '../../services/api';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
 import { resolvePhotoUrl } from '../../utils/photoUrl';
 
@@ -18,8 +18,16 @@ export default function RequestDetail({ navigation, route }) {
   const [rejectReason, setRejectReason] = useState('');
   const [validityHours, setValidityHours] = useState(4);
   const [meetingLoading, setMeetingLoading] = useState(false);
-
   const [cancelReason, setCancelReason] = useState('');
+
+  // Referral state
+  const [referralModalVisible, setReferralModalVisible] = useState(false);
+  const [referralStaffSearch, setReferralStaffSearch] = useState('');
+  const [referralStaffList, setReferralStaffList] = useState([]);
+  const [referralTargetStaff, setReferralTargetStaff] = useState(null);
+  const [referralPurpose, setReferralPurpose] = useState('');
+  const [referralNotes, setReferralNotes] = useState('');
+  const [referralLoading, setReferralLoading] = useState(false);
 
   useEffect(() => { loadRequest(); }, []);
 
@@ -110,6 +118,38 @@ export default function RequestDetail({ navigation, route }) {
   const getStatusColor = (status) => {
     const map = { pending: 'warning', approved: 'success', rejected: 'danger', expired: 'expired', cancelled: 'cancelled' };
     return map[status] || 'primary';
+  };
+
+  // Referral handlers
+  const searchStaff = async (query) => {
+    setReferralStaffSearch(query);
+    if (query.length < 2) { setReferralStaffList([]); return; }
+    try {
+      const res = await userService.searchStaff({ q: query, limit: 10 });
+      setReferralStaffList((res.data?.data?.staff || []).filter(s => s.id !== request?.staff_id));
+    } catch (e) { console.log('Staff search error:', e); }
+  };
+
+  const handleReferVisitor = async () => {
+    if (!referralTargetStaff) { Alert.alert('Error', 'Please select a staff member'); return; }
+    setReferralLoading(true);
+    try {
+      await visitService.referVisitor(requestId, {
+        target_staff_id: referralTargetStaff.id,
+        purpose: referralPurpose.trim() || request?.purpose,
+        notes: referralNotes.trim() || undefined,
+      });
+      Alert.alert('Referred ✅', `Visitor referred to ${referralTargetStaff.full_name}. They will be notified.`);
+      setReferralModalVisible(false);
+      setReferralTargetStaff(null);
+      setReferralPurpose('');
+      setReferralNotes('');
+      loadRequest();
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.message || 'Failed to refer visitor');
+    } finally {
+      setReferralLoading(false);
+    }
   };
 
   if (loading) return <LoadingScreen />;
@@ -230,6 +270,89 @@ export default function RequestDetail({ navigation, route }) {
           </Card>
         )}
 
+        {/* Referral Section — for approved requests */}
+        {request.status === 'approved' && (
+          <Card style={[styles.section, { borderLeftWidth: 3, borderLeftColor: '#3b82f6' }]}>
+            <Text style={styles.sectionTitle}>Refer Visitor</Text>
+            <Text style={[styles.meetingDesc, { marginBottom: 10 }]}>
+              Suggest <Text style={{ fontWeight: '800', color: '#fff' }}>{request.visitor_name}</Text> to meet another staff member. They'll receive a notification for approval.
+            </Text>
+            {request.referred_by_staff && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, padding: 8, backgroundColor: '#3b82f610', borderRadius: 8 }}>
+                <Ionicons name="arrow-redo" size={14} color="#3b82f6" />
+                <Text style={{ color: '#3b82f6', fontSize: 12, fontWeight: '700' }}>Referred from another staff</Text>
+              </View>
+            )}
+            <Button title="Refer to Another Staff" icon="arrow-redo" variant="outline" onPress={() => setReferralModalVisible(true)} />
+          </Card>
+        )}
+
+        {/* Referral Modal */}
+        <Modal visible={referralModalVisible} transparent animationType="slide" onRequestClose={() => setReferralModalVisible(false)}>
+          <View style={styles.referralOverlay}>
+            <View style={styles.referralContainer}>
+              <Text style={styles.referralTitle}>Refer Visitor</Text>
+              <Text style={{ color: Colors.textMuted, fontSize: 12, marginBottom: 16 }}>Search and select a staff member to refer {request.visitor_name} to</Text>
+              
+              <TextInput
+                style={styles.messageInput}
+                placeholder="Search staff by name..."
+                placeholderTextColor={Colors.textMuted}
+                value={referralStaffSearch}
+                onChangeText={searchStaff}
+              />
+              
+              {referralStaffList.length > 0 && (
+                <View style={{ maxHeight: 150, marginTop: 8 }}>
+                  <FlatList
+                    data={referralStaffList}
+                    keyExtractor={item => item.id}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={[styles.staffSearchItem, referralTargetStaff?.id === item.id && styles.staffSearchItemActive]}
+                        onPress={() => { setReferralTargetStaff(item); setReferralStaffList([]); setReferralStaffSearch(item.full_name); }}
+                      >
+                        <Text style={styles.staffSearchName}>{item.full_name}</Text>
+                        <Text style={styles.staffSearchDept}>{item.department || item.designation || 'Staff'}</Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                </View>
+              )}
+
+              {referralTargetStaff && (
+                <View style={{ backgroundColor: Colors.primary + '15', padding: 10, borderRadius: 8, marginTop: 8 }}>
+                  <Text style={{ color: Colors.primary, fontSize: 13, fontWeight: '700' }}>Selected: {referralTargetStaff.full_name}</Text>
+                  <Text style={{ color: Colors.textMuted, fontSize: 11 }}>{referralTargetStaff.department}</Text>
+                </View>
+              )}
+
+              <TextInput
+                style={[styles.messageInput, { marginTop: 12 }]}
+                placeholder="Purpose for referral (optional — defaults to original)"
+                placeholderTextColor={Colors.textMuted}
+                value={referralPurpose}
+                onChangeText={setReferralPurpose}
+                multiline
+              />
+
+              <TextInput
+                style={[styles.messageInput, { marginTop: 8 }]}
+                placeholder="Notes for the other staff (optional)"
+                placeholderTextColor={Colors.textMuted}
+                value={referralNotes}
+                onChangeText={setReferralNotes}
+                multiline
+              />
+
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+                <Button title="Cancel" variant="outline" onPress={() => setReferralModalVisible(false)} style={{ flex: 1 }} />
+                <Button title="Send Referral" icon="arrow-redo" onPress={handleReferVisitor} loading={referralLoading} style={{ flex: 1 }} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Action Buttons for Pending Requests */}
         {request.status === 'pending' && (
           <Card style={styles.actionSection}>
@@ -335,4 +458,13 @@ const styles = StyleSheet.create({
   meetingBtnRow: { flexDirection: 'row', gap: 10 },
   meetingResultBanner: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md, borderRadius: BorderRadius.md, borderWidth: 1 },
   meetingResultText: { fontSize: FontSizes.base, fontWeight: '700', flex: 1 },
+
+  // Referral Modal
+  referralOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'flex-end' },
+  referralContainer: { backgroundColor: Colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.xl, paddingBottom: 40, borderWidth: 1, borderColor: Colors.border },
+  referralTitle: { color: Colors.text, fontSize: FontSizes.xl, fontWeight: '800', marginBottom: 4 },
+  staffSearchItem: { paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: Colors.border, backgroundColor: Colors.background, borderRadius: 6, marginBottom: 4 },
+  staffSearchItemActive: { backgroundColor: Colors.primary + '15', borderColor: Colors.primary },
+  staffSearchName: { color: Colors.text, fontSize: 14, fontWeight: '700' },
+  staffSearchDept: { color: Colors.textMuted, fontSize: 11, marginTop: 2 },
 });

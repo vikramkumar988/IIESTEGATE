@@ -12,5 +12,8 @@ router.get('/activity-logs', authenticate, roleCheck('admin'), dashboardControll
 router.get('/lockdown-status', authenticate, dashboardController.getLockdownStatus);
 router.post('/lockdown', authenticate, roleCheck('admin'), dashboardController.activateLockdown);
 router.delete('/lockdown', authenticate, roleCheck('admin'), dashboardController.liftLockdown);
+router.get('/date-range-report', authenticate, roleCheck('admin'), dashboardController.getDateRangeReport);
+router.get('/scan-logs', authenticate, roleCheck('admin'), dashboardController.getScanLogs);
+router.get('/staff-performance', authenticate, roleCheck('admin'), dashboardController.getStaffPerformance);
 
 module.exports = router;

@@ -253,10 +253,12 @@ export default function AdminDashboard({ navigation }) {
             { icon: 'person-add', label: 'Pending Users', screen: 'PendingUsers', color: Colors.warning, desc: 'Approve / reject' },
             { icon: 'document-text', label: 'All Visits', screen: 'AllVisits', color: Colors.secondary, desc: 'Browse all records' },
             { icon: 'stats-chart', label: 'Day-Wise', screen: 'DayWiseRecords', color: Colors.success, desc: 'Daily analytics' },
+            { icon: 'analytics', label: 'Date Range', screen: 'DayWiseRecords', color: '#EC4899', desc: 'Custom analytics', params: { showDateRange: true } },
+            { icon: 'trophy', label: 'Staff Metrics', screen: 'DayWiseRecords', color: '#f59e0b', desc: 'Performance data', params: { showStaffPerf: true } },
             { icon: 'earth', label: 'Activity Logs', screen: 'ActivityLog', color: '#8B5CF6', desc: 'System events' },
-            { icon: 'notifications', label: 'Notifications', screen: 'Notifications', color: '#EC4899', desc: 'All alerts' },
+            { icon: 'notifications', label: 'Notifications', screen: 'Notifications', color: '#06b6d4', desc: 'All alerts' },
           ].map((a) => (
-            <TouchableOpacity key={a.screen} style={styles.actionItem} onPress={() => navigation.navigate(a.screen)}>
+            <TouchableOpacity key={a.label} style={styles.actionItem} onPress={() => navigation.navigate(a.screen, a.params || {})}>
               <View style={[styles.actionIconCircle, { backgroundColor: a.color + '15' }]}><Ionicons name={a.icon} size={26} color={a.color} /></View>
               <Text style={styles.actionLabel}>{a.label}</Text>
               <Text style={styles.actionDesc}>{a.desc}</Text>

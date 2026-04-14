@@ -16,7 +16,8 @@
       "bundleIdentifier": "ac.in.iiest.egatepass",
       "infoPlist": {
         "NSCameraUsageDescription": "This app requires camera access to capture visitor photos and scan QR codes.",
-        "NSPhotoLibraryUsageDescription": "This app requires photo library access to select visitor photos."
+        "NSPhotoLibraryUsageDescription": "This app requires photo library access to select visitor photos.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -27,7 +28,6 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -50,6 +50,12 @@
       "eas": {
         "projectId": "6e351156-09c3-418f-9d6d-de0be947bc40"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/6e351156-09c3-418f-9d6d-de0be947bc40"
     }
   }
 }

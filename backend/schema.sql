@@ -238,3 +238,47 @@ CREATE TABLE IF NOT EXISTS otp_verifications (
 -- v6 indexes
 CREATE INDEX IF NOT EXISTS idx_otp_email_type ON otp_verifications(email, type, used);
 
+-- ============================================
+-- VISITOR JOURNEYS TABLE (v7)
+-- Tracks a visitor's complete campus session
+-- ============================================
+CREATE TABLE IF NOT EXISTS visitor_journeys (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    visitor_id      UUID NOT NULL REFERENCES visitors(id),
+    initial_pass_id UUID NOT NULL REFERENCES gate_passes(id),
+    campus_entry    TIMESTAMP NOT NULL,
+    campus_exit     TIMESTAMP,
+    total_stops     INTEGER DEFAULT 1,
+    status          VARCHAR(20) DEFAULT 'active'
+                    CHECK (status IN ('active', 'completed', 'overstay')),
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+
+-- ============================================
+-- JOURNEY STOPS TABLE (v7)
+-- Each stop in a multi-stop campus visit
+-- ============================================
+CREATE TABLE IF NOT EXISTS journey_stops (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    journey_id       UUID NOT NULL REFERENCES visitor_journeys(id) ON DELETE CASCADE,
+    stop_number      INTEGER NOT NULL,
+    staff_id         UUID NOT NULL REFERENCES users(id),
+    referred_by      UUID REFERENCES users(id),
+    visit_request_id UUID REFERENCES visit_requests(id),
+    gate_pass_id     UUID REFERENCES gate_passes(id),
+    purpose          TEXT,
+    status           VARCHAR(20) DEFAULT 'pending'
+                     CHECK (status IN ('pending', 'approved', 'rejected', 'met', 'skipped')),
+    arrived_at       TIMESTAMP,
+    departed_at      TIMESTAMP,
+    notes            TEXT,
+    created_at       TIMESTAMP DEFAULT NOW()
+);
+
+-- v7 indexes
+CREATE INDEX IF NOT EXISTS idx_journeys_visitor ON visitor_journeys(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_journeys_status ON visitor_journeys(status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_journeys_entry ON visitor_journeys(campus_entry DESC);
+CREATE INDEX IF NOT EXISTS idx_journey_stops_journey ON journey_stops(journey_id);
+CREATE INDEX IF NOT EXISTS idx_journey_stops_staff ON journey_stops(staff_id);
+

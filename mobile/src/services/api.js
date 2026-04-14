@@ -99,6 +99,10 @@ export const visitService = {
   lookupVisitor: (phone) => api.get('/visits/lookup-visitor', { params: { phone } }),
   guardHistory: (params) => api.get('/visits/guard-history', { params }),
   searchVisitors: (q) => api.get('/visits/search-visitor', { params: { q } }),
+  // New enterprise endpoints
+  referVisitor: (id, data) => api.post(`/visits/${id}/refer`, data),
+  getStaffActive: () => api.get('/visits/staff-active'),
+  getVisitorProfile: (visitorId) => api.get(`/visits/visitor-profile/${visitorId}`),
 };
 
 // ============== GENERAL VISITS ==============
@@ -165,6 +169,18 @@ export const dashboardService = {
   getLockdownStatus: () => api.get('/dashboard/lockdown-status'),
   activateLockdown: (data) => api.post('/dashboard/lockdown', data),
   liftLockdown: () => api.delete('/dashboard/lockdown'),
+  // New enterprise endpoints
+  getDateRangeReport: (params) => api.get('/dashboard/date-range-report', { params }),
+  getScanLogs: (params) => api.get('/dashboard/scan-logs', { params }),
+  getStaffPerformance: (params) => api.get('/dashboard/staff-performance', { params }),
+};
+
+// ============== JOURNEYS ==============
+export const journeyService = {
+  getActiveJourney: (visitorId) => api.get(`/journeys/visitor/${visitorId}/active`),
+  getVisitorJourneys: (visitorId, params) => api.get(`/journeys/visitor/${visitorId}/history`, { params }),
+  getJourney: (journeyId) => api.get(`/journeys/${journeyId}`),
+  getJourneyByVisitRequest: (visitRequestId) => api.get(`/journeys/visit-request/${visitRequestId}`),
 };
 
 // ============== PRE-REGISTRATION ==============
@@ -180,3 +196,4 @@ export const getPreRegUrl = () => API_BASE_URL.replace('/api', '/pre-register');
 
 export { getBaseUrl };
 export default api;
+

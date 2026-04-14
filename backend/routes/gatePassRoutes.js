@@ -5,7 +5,7 @@ const roleCheck = require('../middleware/roleCheck');
 
 router.post('/generate/:visitId', authenticate, roleCheck('guard'), gatePassController.generatePass);
 router.post('/generate-general/:generalVisitId', authenticate, roleCheck('guard'), gatePassController.generateGeneralPass);
-router.post('/verify', authenticate, roleCheck('guard'), gatePassController.verifyPass);
+router.post('/verify', authenticate, roleCheck('guard', 'staff'), gatePassController.verifyPass);
 router.post('/exit', authenticate, roleCheck('guard'), gatePassController.logExit);
 router.get('/', authenticate, roleCheck('guard', 'admin'), gatePassController.getPasses);
 router.get('/:id', authenticate, gatePassController.getPass);

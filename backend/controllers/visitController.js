@@ -977,3 +977,333 @@ exports.searchVisitors = async (req, res, next) => {
   }
 };
 
+// ============== STAFF REFERRAL — Refer a visitor to another staff ==============
+exports.referVisitor = async (req, res, next) => {
+  try {
+    const { id } = req.params; // original visit request ID
+    const { target_staff_id, purpose, notes } = req.body;
+    const referring_staff_id = req.user.id;
+
+    if (!target_staff_id) {
+      return res.status(400).json({ success: false, message: 'Target staff ID is required' });
+    }
+
+    // Get original visit request
+    const origResult = await pool.query(
+      `SELECT vr.*, v.full_name as visitor_name, v.phone as visitor_phone
+       FROM visit_requests vr
+       JOIN visitors v ON vr.visitor_id = v.id
+       WHERE vr.id = $1`,
+      [id]
+    );
+
+    if (origResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Visit request not found' });
+    }
+
+    const orig = origResult.rows[0];
+
+    // Verify the referring staff is the one the visitor came to see
+    if (orig.staff_id !== referring_staff_id) {
+      return res.status(403).json({ success: false, message: 'You can only refer visitors assigned to you' });
+    }
+
+    // Get target staff details
+    const targetStaff = await pool.query(
+      `SELECT id, full_name, department, push_token FROM users WHERE id = $1 AND role = 'staff' AND is_active = true`,
+      [target_staff_id]
+    );
+    if (targetStaff.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Target staff not found' });
+    }
+    const target = targetStaff.rows[0];
+
+    // Find or create a journey for this visitor session
+    let journey_id = orig.journey_id;
+    if (!journey_id) {
+      // Get the gate pass for original request
+      const passResult = await pool.query(
+        `SELECT id, entry_time FROM gate_passes WHERE visit_request_id = $1 AND entry_time IS NOT NULL ORDER BY created_at DESC LIMIT 1`,
+        [id]
+      );
+      const pass = passResult.rows[0];
+
+      if (pass) {
+        const journeyResult = await pool.query(
+          `INSERT INTO visitor_journeys (visitor_id, initial_pass_id, campus_entry, total_stops)
+           VALUES ($1, $2, $3, 1) RETURNING *`,
+          [orig.visitor_id, pass.id, pass.entry_time || new Date()]
+        );
+        journey_id = journeyResult.rows[0].id;
+
+        // Create first stop for original visit
+        await pool.query(
+          `INSERT INTO journey_stops (journey_id, stop_number, staff_id, visit_request_id, gate_pass_id, purpose, status, arrived_at)
+           VALUES ($1, 1, $2, $3, $4, $5, $6, $7)`,
+          [journey_id, orig.staff_id, orig.id, pass.id, orig.purpose, 
+           orig.meeting_status === 'met' ? 'met' : 'approved', pass.entry_time]
+        );
+
+        // Link original request to journey
+        await pool.query(`UPDATE visit_requests SET journey_id = $1 WHERE id = $2`, [journey_id, id]);
+      }
+    }
+
+    // Create the referred visit request
+    const referredResult = await pool.query(
+      `INSERT INTO visit_requests (visitor_id, guard_id, staff_id, purpose, notes, status, referred_by_staff, journey_id, parent_request_id)
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8) RETURNING *`,
+      [orig.visitor_id, orig.guard_id, target_staff_id, purpose || orig.purpose, notes || null, 
+       referring_staff_id, journey_id, id]
+    );
+    const referredRequest = referredResult.rows[0];
+
+    // Add journey stop
+    if (journey_id) {
+      const stopCount = await pool.query(`SELECT COUNT(*) FROM journey_stops WHERE journey_id = $1`, [journey_id]);
+      const nextStop = parseInt(stopCount.rows[0].count) + 1;
+      await pool.query(
+        `INSERT INTO journey_stops (journey_id, stop_number, staff_id, referred_by, visit_request_id, purpose, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
+        [journey_id, nextStop, target_staff_id, referring_staff_id, referredRequest.id, purpose || orig.purpose]
+      );
+      await pool.query(`UPDATE visitor_journeys SET total_stops = $1 WHERE id = $2`, [nextStop, journey_id]);
+    }
+
+    // Notify target staff
+    const notifBody = `${req.user.full_name} has referred visitor ${orig.visitor_name} to you. Purpose: ${purpose || orig.purpose}`;
+    await pool.query(
+      `INSERT INTO notifications (user_id, title, body, type, reference_id) VALUES ($1, $2, $3, $4, $5)`,
+      [target_staff_id, '📋 Visitor Referral', notifBody, 'referral', referredRequest.id]
+    );
+
+    if (target.push_token) {
+      await sendPushNotification(target.push_token, '📋 Visitor Referral', notifBody, 
+        { type: 'referral', requestId: referredRequest.id });
+    }
+
+    await logActivity(req.user.id, 'refer_visitor', 'visit_request', referredRequest.id, {
+      from_staff: req.user.full_name, to_staff: target.full_name, visitor_name: orig.visitor_name,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Visitor referred to ${target.full_name}. Awaiting their approval.`,
+      data: { referral: referredRequest, journey_id },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============== STAFF ACTIVE VISITORS ==============
+// Get visitors currently inside campus who this staff approved
+exports.getStaffActiveVisitors = async (req, res, next) => {
+  try {
+    const staff_id = req.user.id;
+
+    const result = await pool.query(
+      `SELECT 
+         vr.id as request_id, vr.purpose, vr.status as request_status,
+         vr.meeting_status, vr.meeting_confirmed_at, vr.approved_at, vr.valid_until,
+         vr.referred_by_staff, vr.journey_id,
+         v.id as visitor_id, v.full_name as visitor_name, v.phone as visitor_phone, v.photo_url as visitor_photo,
+         gp.id as pass_id, gp.pass_code, gp.entry_time, gp.exit_time, gp.valid_until as pass_valid_until,
+         gp.status as pass_status,
+         g.full_name as guard_name,
+         ref_staff.full_name as referred_by_name,
+         CASE 
+           WHEN gp.entry_time IS NOT NULL AND gp.exit_time IS NULL THEN 'inside'
+           WHEN gp.entry_time IS NOT NULL AND gp.exit_time IS NOT NULL THEN 'left'
+           WHEN gp.entry_time IS NULL AND gp.status = 'active' THEN 'not_entered'
+           ELSE 'expired'
+         END as campus_status,
+         CASE WHEN gp.entry_time IS NOT NULL AND gp.exit_time IS NULL
+           THEN EXTRACT(EPOCH FROM (NOW() - gp.entry_time)) / 60.0
+           ELSE NULL
+         END as minutes_inside
+       FROM visit_requests vr
+       JOIN visitors v ON vr.visitor_id = v.id
+       LEFT JOIN (
+         SELECT DISTINCT ON (visit_request_id) *
+         FROM gate_passes
+         ORDER BY visit_request_id, created_at DESC
+       ) gp ON gp.visit_request_id = vr.id
+       JOIN users g ON vr.guard_id = g.id
+       LEFT JOIN users ref_staff ON vr.referred_by_staff = ref_staff.id
+       WHERE vr.staff_id = $1
+         AND vr.status = 'approved'
+         AND (vr.created_at + INTERVAL '5 hours 30 minutes')::date = CURRENT_DATE
+       ORDER BY 
+         CASE WHEN gp.entry_time IS NOT NULL AND gp.exit_time IS NULL THEN 0 ELSE 1 END,
+         gp.entry_time DESC NULLS LAST`,
+      [staff_id]
+    );
+
+    // Also get the ones who entered today (might be from previous days' approvals)
+    const insideResult = await pool.query(
+      `SELECT 
+         vr.id as request_id, vr.purpose, vr.meeting_status,
+         v.id as visitor_id, v.full_name as visitor_name, v.phone as visitor_phone, v.photo_url as visitor_photo,
+         gp.id as pass_id, gp.pass_code, gp.entry_time, gp.exit_time, gp.valid_until as pass_valid_until,
+         'inside' as campus_status,
+         EXTRACT(EPOCH FROM (NOW() - gp.entry_time)) / 60.0 as minutes_inside
+       FROM visit_requests vr
+       JOIN visitors v ON vr.visitor_id = v.id
+       JOIN gate_passes gp ON gp.visit_request_id = vr.id
+       WHERE vr.staff_id = $1
+         AND gp.entry_time IS NOT NULL AND gp.exit_time IS NULL
+         AND vr.id NOT IN (SELECT unnest($2::uuid[]))`,
+      [staff_id, result.rows.map(r => r.request_id)]
+    );
+
+    const allVisitors = [...result.rows, ...insideResult.rows];
+
+    // Summary
+    const inside = allVisitors.filter(v => v.campus_status === 'inside').length;
+    const left = allVisitors.filter(v => v.campus_status === 'left').length;
+    const notEntered = allVisitors.filter(v => v.campus_status === 'not_entered').length;
+
+    res.json({
+      success: true,
+      data: {
+        visitors: allVisitors,
+        summary: { inside, left, not_entered: notEntered, total: allVisitors.length },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============== VISITOR PROFILE ==============
+// Comprehensive visitor profile with full history
+exports.getVisitorProfile = async (req, res, next) => {
+  try {
+    const { visitorId } = req.params;
+
+    // Get visitor base info
+    const visitorResult = await pool.query(
+      `SELECT * FROM visitors WHERE id = $1`,
+      [visitorId]
+    );
+
+    if (visitorResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Visitor not found' });
+    }
+    const visitor = visitorResult.rows[0];
+
+    // Visit history with full details
+    const historyResult = await pool.query(
+      `SELECT vr.*, 
+              s.full_name as staff_name, s.department as staff_department,
+              g.full_name as guard_name, g.gate_assigned,
+              gp.entry_time, gp.exit_time, gp.pass_code, gp.status as pass_status,
+              gp.valid_until as pass_valid_until,
+              CASE WHEN vr.responded_at IS NOT NULL AND vr.requested_at IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (vr.responded_at - vr.requested_at)) / 60.0
+                ELSE NULL
+              END as response_time_minutes,
+              ref_staff.full_name as referred_by_name
+       FROM visit_requests vr
+       JOIN users s ON vr.staff_id = s.id
+       JOIN users g ON vr.guard_id = g.id
+       LEFT JOIN (
+         SELECT DISTINCT ON (visit_request_id) *
+         FROM gate_passes ORDER BY visit_request_id, created_at DESC
+       ) gp ON gp.visit_request_id = vr.id
+       LEFT JOIN users ref_staff ON vr.referred_by_staff = ref_staff.id
+       WHERE vr.visitor_id = $1
+       ORDER BY vr.created_at DESC
+       LIMIT 50`,
+      [visitorId]
+    );
+
+    // General visits history
+    const generalResult = await pool.query(
+      `SELECT gv.*, g.full_name as guard_name,
+              gp.entry_time, gp.exit_time, gp.pass_code, gp.status as pass_status
+       FROM general_visits gv
+       JOIN users g ON gv.guard_id = g.id
+       LEFT JOIN (
+         SELECT DISTINCT ON (general_visit_id) *
+         FROM gate_passes WHERE general_visit_id IS NOT NULL
+         ORDER BY general_visit_id, created_at DESC
+       ) gp ON gp.general_visit_id = gv.id
+       WHERE gv.visitor_id = $1
+       ORDER BY gv.created_at DESC
+       LIMIT 30`,
+      [visitorId]
+    );
+
+    // Statistics
+    const statsResult = await pool.query(
+      `SELECT 
+         COUNT(*) as total_visits,
+         COUNT(*) FILTER (WHERE status = 'approved') as total_approved,
+         COUNT(*) FILTER (WHERE status = 'rejected') as total_rejected,
+         COUNT(DISTINCT staff_id) as unique_staff_visited,
+         MIN(created_at) as first_visit,
+         MAX(created_at) as last_visit,
+         AVG(CASE WHEN responded_at IS NOT NULL AND requested_at IS NOT NULL
+           THEN EXTRACT(EPOCH FROM (responded_at - requested_at)) / 60.0
+           ELSE NULL END) as avg_response_time
+       FROM visit_requests WHERE visitor_id = $1`,
+      [visitorId]
+    );
+
+    // Most visited staff
+    const topStaffResult = await pool.query(
+      `SELECT s.full_name, s.department, COUNT(*) as visit_count
+       FROM visit_requests vr
+       JOIN users s ON vr.staff_id = s.id
+       WHERE vr.visitor_id = $1
+       GROUP BY s.id, s.full_name, s.department
+       ORDER BY visit_count DESC LIMIT 5`,
+      [visitorId]
+    );
+
+    // Current campus status
+    const insideResult = await pool.query(
+      `SELECT gp.entry_time, gp.valid_until, gp.pass_code
+       FROM gate_passes gp
+       WHERE gp.visitor_id = $1 AND gp.entry_time IS NOT NULL AND gp.exit_time IS NULL
+       ORDER BY gp.entry_time DESC LIMIT 1`,
+      [visitorId]
+    );
+
+    // Journey count
+    const journeyCount = await pool.query(
+      `SELECT COUNT(*) FROM visitor_journeys WHERE visitor_id = $1`,
+      [visitorId]
+    );
+
+    const stats = statsResult.rows[0] || {};
+
+    res.json({
+      success: true,
+      data: {
+        visitor,
+        history: historyResult.rows,
+        general_visits: generalResult.rows,
+        statistics: {
+          total_visits: parseInt(stats.total_visits || 0),
+          total_approved: parseInt(stats.total_approved || 0),
+          total_rejected: parseInt(stats.total_rejected || 0),
+          approval_rate: stats.total_visits > 0 
+            ? Math.round((stats.total_approved / stats.total_visits) * 100) : 0,
+          unique_staff_visited: parseInt(stats.unique_staff_visited || 0),
+          avg_response_time: stats.avg_response_time ? parseFloat(stats.avg_response_time).toFixed(1) : null,
+          first_visit: stats.first_visit,
+          last_visit: stats.last_visit,
+          total_journeys: parseInt(journeyCount.rows[0]?.count || 0),
+        },
+        top_staff: topStaffResult.rows,
+        currently_inside: insideResult.rows.length > 0 ? insideResult.rows[0] : null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
