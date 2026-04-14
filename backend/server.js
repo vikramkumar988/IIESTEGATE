@@ -109,6 +109,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/pre-register', preRegRoutes);
 app.use('/api/journeys', require('./middleware/auth'), journeyRoutes);
+app.use('/api/incidents', require('./routes/incidentRoutes'));
 
 // Public pass page (no auth — visitor accesses via SMS link)
 const publicPassController = require('./controllers/publicPassController');

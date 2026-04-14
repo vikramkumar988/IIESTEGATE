@@ -3,14 +3,18 @@ import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, A
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { Card, StatCard, Header, LoadingScreen, Badge, Button, Avatar } from '../../components';
-import { dashboardService, notificationService, userService, visitService, gatePassService, getBaseUrl, getPreRegUrl } from '../../services/api';
-import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { dashboardService, notificationService, userService, visitService, gatePassService, getBaseUrl, getPreRegUrl, incidentService } from '../../services/api';
+import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../theme';
 import { resolvePhotoUrl } from '../../utils/photoUrl';
 
-
-
-
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good Morning';
+  if (h < 17) return 'Good Afternoon';
+  return 'Good Evening';
+}
 
 export default function AdminDashboard({ navigation }) {
   const { user } = useAuth();
@@ -23,18 +27,25 @@ export default function AdminDashboard({ navigation }) {
   const [stillInside, setStillInside] = useState({ count: 0, visitors: [] });
   const [lockdownModalVisible, setLockdownModalVisible] = useState(false);
   const [lockdownReason, setLockdownReason] = useState('');
+  const [broadcastModalVisible, setBroadcastModalVisible] = useState(false);
+  const [broadcastMsg, setBroadcastMsg] = useState('');
+  const [broadcastTitle, setBroadcastTitle] = useState('');
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [openIncidents, setOpenIncidents] = useState(0);
+
   // Visitor detail modal
   const [selectedVisitor, setSelectedVisitor] = useState(null);
   const [showVisitorModal, setShowVisitorModal] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      const [statsRes, guardRes, notifRes, lockdownRes, insideRes] = await Promise.all([
+      const [statsRes, guardRes, notifRes, lockdownRes, insideRes, incidentRes] = await Promise.all([
         dashboardService.getStats().catch(() => ({ data: { data: { stats: {} } } })),
         dashboardService.getGuardActivity().catch(() => ({ data: { data: { guards: [] } } })),
         notificationService.getUnreadCount().catch(() => ({ data: { data: { count: 0 } } })),
         dashboardService.getLockdownStatus().catch(() => ({ data: { data: { is_lockdown: false } } })),
         userService.getStillInside().catch(() => ({ data: { data: { count: 0, visitors: [] } } })),
+        incidentService.getAll({ resolved: 'false', limit: 1 }).catch(() => ({ data: { data: { pagination: { total: 0 } } } })),
       ]);
 
       setStats(statsRes.data?.data?.stats || {});
@@ -42,7 +53,7 @@ export default function AdminDashboard({ navigation }) {
       setUnreadCount(notifRes.data?.data?.count || 0);
       setLockdown(lockdownRes.data?.data?.is_lockdown ? lockdownRes.data.data.lockdown : null);
       setStillInside(insideRes.data?.data || { count: 0, visitors: [] });
-
+      setOpenIncidents(incidentRes.data?.data?.pagination?.total || 0);
     } catch (e) {
       console.log('Admin Dashboard load error:', e);
     } finally {
@@ -53,59 +64,72 @@ export default function AdminDashboard({ navigation }) {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { const u = navigation.addListener('focus', loadData); return u; }, [navigation, loadData]);
-
-  // Auto-refresh every 30s
   useEffect(() => {
     const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
 
+  // Lockdown
   const handleActivateLockdown = async () => {
-    if (!lockdownReason.trim()) return Alert.alert('Error', 'Provide a reason');
+    if (!lockdownReason.trim()) return Alert.alert('Required', 'Please provide a reason');
     try {
       await dashboardService.activateLockdown({ reason: lockdownReason.trim() });
-      Alert.alert('🚨 Lockdown Activated', 'All passes revoked. All guards notified.');
+      Alert.alert('🚨 Lockdown Active', 'All passes revoked. All personnel notified.');
       setLockdownModalVisible(false);
       setLockdownReason('');
       loadData();
     } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Failed');
+      Alert.alert('Error', e.response?.data?.message || 'Failed to activate lockdown');
     }
   };
 
   const handleLiftLockdown = () => {
-    Alert.alert('Lift Lockdown?', 'This will resume normal campus operations.', [
+    Alert.alert('Lift Lockdown?', 'This will allow normal operations to resume.', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Lift', style: 'destructive', onPress: async () => {
+        text: 'Lift', onPress: async () => {
           try {
             await dashboardService.liftLockdown();
             Alert.alert('✅ Lockdown Lifted', 'Normal operations resumed.');
             loadData();
           } catch (e) { Alert.alert('Error', 'Failed to lift lockdown'); }
-        },
-      },
-    ]);
-  };
-
-  const handleForceExit = async (passId, name) => {
-    Alert.alert('Force Exit?', `Record exit for ${name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Force Exit', style: 'destructive', onPress: async () => {
-          try {
-            await userService.forceExit({ pass_id: passId });
-            Alert.alert('Done', `Exit recorded for ${name}`);
-            setShowVisitorModal(false);
-            loadData();
-          } catch (e) { Alert.alert('Error', 'Failed'); }
         }
       },
     ]);
   };
 
-  const openVisitorModal = (visitor) => {
-    setSelectedVisitor(visitor);
-    setShowVisitorModal(true);
+  // Broadcast
+  const handleBroadcast = async () => {
+    if (!broadcastMsg.trim()) return Alert.alert('Required', 'Message is required');
+    setBroadcastSending(true);
+    try {
+      const res = await dashboardService.broadcastAlert({ title: broadcastTitle.trim() || undefined, message: broadcastMsg.trim() });
+      Alert.alert('📢 Sent', res.data?.message || 'Alert sent to all guards.');
+      setBroadcastModalVisible(false);
+      setBroadcastMsg('');
+      setBroadcastTitle('');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to send broadcast');
+    } finally {
+      setBroadcastSending(false);
+    }
+  };
+
+  // Force exit
+  const handleForceExit = (passId, name) => {
+    Alert.alert('Force Exit?', `Record exit for ${name}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Force Exit', style: 'destructive', onPress: async () => {
+          try {
+            await userService.forceExit({ pass_id: passId });
+            Alert.alert('Done', `Exit recorded for ${name}`);
+            setShowVisitorModal(false);
+            loadData();
+          } catch (e) { Alert.alert('Error', 'Failed to record exit'); }
+        }
+      },
+    ]);
   };
 
   const getTimeInside = (entryTime) => {
@@ -118,299 +142,337 @@ export default function AdminDashboard({ navigation }) {
 
   if (loading) return <LoadingScreen />;
 
+  const s = stats || {};
+
   return (
     <View style={styles.container}>
-      <Header title="Admin Control" subtitle={user?.full_name || 'Administrator'} rightIcon="notifications-outline" onRightPress={() => navigation.navigate('Notifications')} rightBadge={unreadCount} />
+      {/* ══════════ HEADER ══════════ */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.greeting}>{getGreeting()} 👋</Text>
+          <Text style={styles.userName}>{user?.full_name}</Text>
+          <Text style={styles.roleBadge}>ADMIN</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.notifBtn} onPress={() => navigation.navigate('Notifications')}>
+            <Ionicons name="notifications-outline" size={22} color={Colors.text} />
+            {unreadCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* 🚨 LOCKDOWN */}
+      {lockdown && (
+        <TouchableOpacity style={styles.lockdownBanner} onPress={handleLiftLockdown}>
+          <Ionicons name="lock-closed" size={20} color="#FF3333" />
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={styles.lockdownTitle}>🚨 CAMPUS LOCKDOWN ACTIVE</Text>
+            <Text style={styles.lockdownReason}>{lockdown.reason} • Tap to lift</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#FF6666" />
+        </TouchableOpacity>
+      )}
 
       <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} tintColor={Colors.primary} />}>
-        
-        {/* LOCKDOWN BANNER */}
-        {lockdown && (
-          <TouchableOpacity style={styles.lockdownBanner} activeOpacity={0.9} onPress={handleLiftLockdown}>
-            <Ionicons name="lock-closed" size={28} color="#FF3333" />
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.lockdownTitle}>🚨 CAMPUS LOCKDOWN ACTIVE</Text>
-              <Text style={styles.lockdownReason}>Reason: {lockdown.reason}</Text>
-              <Text style={styles.lockdownSince}>Since: {new Date(lockdown.activated_at).toLocaleString('en-IN')}</Text>
-            </View>
-            <Text style={{ color: '#FF6666', fontSize: 10, fontWeight: '700' }}>TAP TO LIFT</Text>
-          </TouchableOpacity>
-        )}
 
-        {/* === OVERVIEW STATS GRID === */}
-        <Text style={styles.sectionTitle}>Campus Overview</Text>
-        <View style={styles.statsGrid}>
-          <View style={styles.statsRow}>
-            <StatCard icon="people" label="Total Users" value={stats?.total_users || 0} color={Colors.primary} />
-            <StatCard icon="today" label="Visits Today" value={stats?.visits_today || 0} color={Colors.secondary} />
+        {/* ══════════ ANALYTICS CARDS ══════════ */}
+        <View style={styles.analyticsRow}>
+          <View style={[styles.analyticsCard, { borderLeftColor: Colors.primary }]}>
+            <Text style={styles.analyticsValue}>{s.visits_this_month || 0}</Text>
+            <Text style={styles.analyticsLabel}>Visits This Month</Text>
+            <View style={styles.trendPill}>
+              <Ionicons name="trending-up" size={10} color={Colors.success} />
+              <Text style={styles.trendText}>+{s.visits_this_week || 0} this week</Text>
+            </View>
           </View>
-          <View style={styles.statsRow}>
-            <StatCard icon="calendar" label="This Week" value={stats?.visits_this_week || 0} color="#a78bfa" />
-            <StatCard icon="calendar-outline" label="This Month" value={stats?.visits_this_month || 0} color="#f59e0b" />
-          </View>
-          <View style={styles.statsRow}>
-            <StatCard icon="hourglass" label="Awaiting Staff" value={stats?.pending_requests || 0} color={Colors.warning} />
-            <StatCard icon="qr-code" label="Active Passes" value={stats?.active_passes || 0} color={Colors.success} />
+          <View style={[styles.analyticsCard, { borderLeftColor: Colors.success }]}>
+            <Text style={styles.analyticsValue}>{s.active_passes || 0}</Text>
+            <Text style={styles.analyticsLabel}>Active Passes</Text>
+            <View style={[styles.trendPill, { backgroundColor: '#22c55e10' }]}>
+              <View style={styles.activeDot} />
+              <Text style={[styles.trendText, { color: '#22c55e' }]}>Live</Text>
+            </View>
           </View>
         </View>
 
-        {/* Breakdown pills */}
-        <View style={styles.breakdownRow}>
-          <View style={styles.breakdownPill}>
-            <Ionicons name="shield" size={14} color={Colors.secondary} />
-            <Text style={styles.breakdownText}>{stats?.total_guards || 0} Guards</Text>
+        <View style={styles.analyticsRow}>
+          <View style={[styles.analyticsCard, { borderLeftColor: Colors.warning }]}>
+            <Text style={styles.analyticsValue}>{s.pending_requests || 0}</Text>
+            <Text style={styles.analyticsLabel}>Pending Requests</Text>
           </View>
-          <View style={styles.breakdownPill}>
-            <Ionicons name="school" size={14} color={Colors.primary} />
-            <Text style={styles.breakdownText}>{stats?.total_staff || 0} Staff</Text>
-          </View>
-          <View style={styles.breakdownPill}>
-            <Ionicons name="school-outline" size={14} color="#a78bfa" />
-            <Text style={styles.breakdownText}>{stats?.professor_visits_today || 0} Prof</Text>
-          </View>
-          <View style={styles.breakdownPill}>
-            <Ionicons name="people-outline" size={14} color="#f59e0b" />
-            <Text style={styles.breakdownText}>{stats?.general_visits_today || 0} General</Text>
-          </View>
-        </View>
-
-        {/* === VISITORS CURRENTLY INSIDE CAMPUS === */}
-        <View style={styles.insideSection}>
-          <View style={styles.insideHeader}>
-            <View style={styles.insideHeaderLeft}>
-              <View style={[styles.insidePulse, { backgroundColor: stillInside.count > 0 ? '#22c55e' : Colors.textMuted }]} />
-              <Text style={styles.insideTitle}>
-                {stillInside.count > 0 ? `${stillInside.count} Visitor${stillInside.count !== 1 ? 's' : ''} Inside Campus` : 'No Visitors Inside'}
-              </Text>
-            </View>
-            {stillInside.count > 0 && (
-              <View style={styles.liveBadge}>
-                <Text style={styles.liveText}>LIVE</Text>
+          <View style={[styles.analyticsCard, { borderLeftColor: openIncidents > 0 ? '#ef4444' : Colors.textMuted }]}>
+            <Text style={[styles.analyticsValue, openIncidents > 0 && { color: '#ef4444' }]}>{openIncidents}</Text>
+            <Text style={styles.analyticsLabel}>Open Incidents</Text>
+            {openIncidents > 0 && (
+              <View style={[styles.trendPill, { backgroundColor: '#ef444410' }]}>
+                <Ionicons name="alert-circle" size={10} color="#ef4444" />
+                <Text style={[styles.trendText, { color: '#ef4444' }]}>Needs attention</Text>
               </View>
             )}
           </View>
-
-          {stillInside.visitors.length > 0 && (
-            <View style={styles.insideList}>
-              {stillInside.visitors.map((v, i) => {
-                const isOverstay = new Date(v.valid_until) < new Date();
-                return (
-                  <TouchableOpacity key={`inside-${v.pass_id}-${i}`} style={[styles.insideRow, isOverstay && styles.insideRowOverstay]} activeOpacity={0.7} onPress={() => openVisitorModal(v)}>
-                    {v.visitor_photo ? (
-                      <Image source={{ uri: resolvePhotoUrl(v.visitor_photo) }} style={styles.insideAvatar} />
-                    ) : (
-                      <View style={styles.insideAvatarPlaceholder}>
-                        <Text style={styles.insideAvatarInitial}>{v.visitor_name?.charAt(0)?.toUpperCase()}</Text>
-                      </View>
-                    )}
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                      <View style={styles.insideNameRow}>
-                        <Text style={styles.insideName} numberOfLines={1}>{v.visitor_name}</Text>
-                        {isOverstay && (
-                          <View style={styles.overstayPill}>
-                            <Text style={styles.overstayPillText}>⚠️ OVERSTAY</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={styles.insideMeta}>📱 {v.visitor_phone}</Text>
-                      <Text style={styles.insideMeta}>
-                        🕐 Entered {new Date(v.entry_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} • {getTimeInside(v.entry_time)} ago
-                      </Text>
-                      {v.staff_name && <Text style={styles.insideMeta}>🎓 Visiting {v.staff_name}</Text>}
-                      {v.visit_type !== 'professor_visit' && <Text style={styles.insideMeta}>👥 General Visit</Text>}
-                    </View>
-                    <View style={styles.insideActions}>
-                      <TouchableOpacity style={styles.forceExitBtn} onPress={() => handleForceExit(v.pass_id, v.visitor_name)}>
-                        <Ionicons name="log-out-outline" size={14} color="#ef4444" />
-                        <Text style={styles.forceExitText}>Exit</Text>
-                      </TouchableOpacity>
-                      <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} style={{ marginTop: 6 }} />
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
         </View>
 
-        {/* Pending Users Critical Alert */}
-        {(stats?.pending_users || 0) > 0 && (
-          <TouchableOpacity style={styles.pendingAlert} onPress={() => navigation.navigate('PendingUsers')} activeOpacity={0.8}>
-            <View style={styles.pendingAlertGlow}><Ionicons name="people-circle" size={32} color={Colors.warning} /></View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.pendingAlertTitle}>{stats.pending_users} New Registration{stats.pending_users > 1 ? 's' : ''}</Text>
-              <Text style={styles.pendingAlertSub}>Awaiting verification & account activation</Text>
+        {/* ══════════ TODAY'S SUMMARY ══════════ */}
+        <View style={styles.todayCard}>
+          <View style={styles.todayHeader}>
+            <Ionicons name="analytics" size={18} color={Colors.primary} />
+            <Text style={styles.todayTitle}>Today's Overview</Text>
+          </View>
+          <View style={styles.todayRow}>
+            <View style={styles.todayItem}>
+              <Text style={[styles.todayValue, { color: Colors.primary }]}>{s.visits_today || 0}</Text>
+              <Text style={styles.todayLabel}>Total Visits</Text>
             </View>
-            <Ionicons name="chevron-forward-circle" size={24} color={Colors.warning} />
-          </TouchableOpacity>
-        )}
+            <View style={styles.todayDivider} />
+            <View style={styles.todayItem}>
+              <Text style={[styles.todayValue, { color: '#a78bfa' }]}>{s.professor_visits_today || 0}</Text>
+              <Text style={styles.todayLabel}>Professor</Text>
+            </View>
+            <View style={styles.todayDivider} />
+            <View style={styles.todayItem}>
+              <Text style={[styles.todayValue, { color: Colors.success }]}>{s.general_visits_today || 0}</Text>
+              <Text style={styles.todayLabel}>General</Text>
+            </View>
+            <View style={styles.todayDivider} />
+            <View style={styles.todayItem}>
+              <Text style={[styles.todayValue, { color: '#22c55e' }]}>{stillInside.count || 0}</Text>
+              <Text style={styles.todayLabel}>Inside Now</Text>
+            </View>
+          </View>
+        </View>
 
-        {/* === MANAGEMENT CONSOLE === */}
-        <Text style={styles.sectionTitle}>Management Console</Text>
-        <View style={styles.actionsGrid}>
+        {/* ══════════ QUICK ACTIONS ══════════ */}
+        <Text style={styles.sectionLabel}>QUICK ACTIONS</Text>
+        <View style={styles.quickActionsGrid}>
+          <TouchableOpacity style={styles.qaBtn} onPress={() => setBroadcastModalVisible(true)}>
+            <View style={[styles.qaIcon, { backgroundColor: '#3b82f612' }]}>
+              <Ionicons name="megaphone" size={22} color="#3b82f6" />
+            </View>
+            <Text style={styles.qaLabel}>Broadcast{'\n'}Alert</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.qaBtn} onPress={() => lockdown ? handleLiftLockdown() : setLockdownModalVisible(true)}>
+            <View style={[styles.qaIcon, { backgroundColor: lockdown ? '#22c55e12' : '#ef444412' }]}>
+              <Ionicons name={lockdown ? 'lock-open' : 'lock-closed'} size={22} color={lockdown ? '#22c55e' : '#ef4444'} />
+            </View>
+            <Text style={styles.qaLabel}>{lockdown ? 'Lift' : 'Activate'}{'\n'}Lockdown</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.qaBtn} onPress={() => navigation.navigate('IncidentList')}>
+            <View style={[styles.qaIcon, { backgroundColor: '#f9731612' }]}>
+              <Ionicons name="warning" size={22} color="#f97316" />
+              {openIncidents > 0 && <View style={styles.qaBadge}><Text style={styles.qaBadgeText}>{openIncidents}</Text></View>}
+            </View>
+            <Text style={styles.qaLabel}>View{'\n'}Incidents</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.qaBtn} onPress={() => navigation.navigate('EmergencyContacts')}>
+            <View style={[styles.qaIcon, { backgroundColor: '#ef444412' }]}>
+              <Ionicons name="call" size={22} color="#ef4444" />
+            </View>
+            <Text style={styles.qaLabel}>Emergency{'\n'}Contacts</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ══════════ MANAGEMENT CONSOLE ══════════ */}
+        <Text style={styles.sectionLabel}>MANAGEMENT CONSOLE</Text>
+        <View style={styles.mgmtGrid}>
           {[
-            { icon: 'people', label: 'All Users', screen: 'UserManagement', color: Colors.primary, desc: 'Guards, Staff & Admins' },
-            { icon: 'person-add', label: 'Pending Users', screen: 'PendingUsers', color: Colors.warning, desc: 'Approve / reject' },
-            { icon: 'document-text', label: 'All Visits', screen: 'AllVisits', color: Colors.secondary, desc: 'Browse all records' },
-            { icon: 'stats-chart', label: 'Day-Wise', screen: 'DayWiseRecords', color: Colors.success, desc: 'Daily analytics' },
-            { icon: 'analytics', label: 'Date Range', screen: 'DayWiseRecords', color: '#EC4899', desc: 'Custom analytics', params: { showDateRange: true } },
-            { icon: 'trophy', label: 'Staff Metrics', screen: 'DayWiseRecords', color: '#f59e0b', desc: 'Performance data', params: { showStaffPerf: true } },
-            { icon: 'earth', label: 'Activity Logs', screen: 'ActivityLog', color: '#8B5CF6', desc: 'System events' },
-            { icon: 'notifications', label: 'Notifications', screen: 'Notifications', color: '#06b6d4', desc: 'All alerts' },
-          ].map((a) => (
-            <TouchableOpacity key={a.label} style={styles.actionItem} onPress={() => navigation.navigate(a.screen, a.params || {})}>
-              <View style={[styles.actionIconCircle, { backgroundColor: a.color + '15' }]}><Ionicons name={a.icon} size={26} color={a.color} /></View>
-              <Text style={styles.actionLabel}>{a.label}</Text>
-              <Text style={styles.actionDesc}>{a.desc}</Text>
+            { icon: 'people', label: 'User Management', color: Colors.primary, screen: 'UserManagement', badge: s.pending_users },
+            { icon: 'list', label: 'All Visits', color: '#a78bfa', screen: 'AllVisits' },
+            { icon: 'bar-chart', label: 'Analytics', color: Colors.success, screen: 'ActivityLog' },
+            { icon: 'ban', label: 'Blacklist', color: '#ef4444', screen: 'BlacklistManagement' },
+            { icon: 'person-add', label: 'Pending Users', color: Colors.warning, screen: 'PendingUsers', badge: s.pending_users },
+            { icon: 'document-text', label: 'Activity Logs', color: '#64748b', screen: 'ActivityLog' },
+          ].map((item, idx) => (
+            <TouchableOpacity key={`mgmt-${idx}`} style={styles.mgmtCard} onPress={() => navigation.navigate(item.screen)}>
+              <View style={[styles.mgmtIcon, { backgroundColor: item.color + '12' }]}>
+                <Ionicons name={item.icon} size={22} color={item.color} />
+                {item.badge > 0 && (
+                  <View style={styles.mgmtBadge}>
+                    <Text style={styles.mgmtBadgeText}>{item.badge}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.mgmtLabel}>{item.label}</Text>
+              <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} />
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* === GUARD ACTIVITY (24h) === */}
+        {/* ══════════ GUARD ACTIVITY ══════════ */}
         {guardActivity.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>Guard Activity (24h)</Text>
-            {guardActivity.map((g) => (
-              <TouchableOpacity key={g.id} activeOpacity={0.8} onPress={() => navigation.navigate('UserDetail', { userId: g.id })}>
-                <Card style={styles.guardCard}>
-                  <View style={styles.guardRow}>
-                    <View style={styles.guardAvatarCircle}>
-                      <Text style={styles.guardInitial}>{g.full_name?.charAt(0)?.toUpperCase()}</Text>
-                    </View>
-                    <View style={{ flex: 1, marginLeft: Spacing.md }}>
-                      <Text style={styles.guardName}>{g.full_name}</Text>
-                      <Text style={styles.guardGate}>📍 {g.gate_assigned || 'Mobile Unit'}</Text>
-                    </View>
-                    <View style={styles.guardStats}>
-                      <View style={styles.guardStatItem}>
-                        <Text style={styles.guardStatNum}>{g.requests_today}</Text>
-                        <Text style={styles.guardStatLbl}>REQUESTS</Text>
-                      </View>
-                      <View style={styles.guardStatDivider} />
-                      <View style={styles.guardStatItem}>
-                        <Text style={styles.guardStatNum}>{g.passes_today}</Text>
-                        <Text style={styles.guardStatLbl}>PASSES</Text>
-                      </View>
-                      <View style={styles.guardStatDivider} />
-                      <View style={styles.guardStatItem}>
-                        <Text style={styles.guardStatNum}>{g.scans_today}</Text>
-                        <Text style={styles.guardStatLbl}>SCANS</Text>
-                      </View>
-                    </View>
-                  </View>
-                </Card>
-              </TouchableOpacity>
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="shield" size={16} color={Colors.primary} />
+              <Text style={styles.sectionTitle}>Guard Activity (24h)</Text>
+            </View>
+            {guardActivity.slice(0, 5).map((guard, idx) => (
+              <View key={`guard-${guard.id}-${idx}`} style={styles.guardRow}>
+                <View style={styles.guardAvatar}>
+                  <Text style={styles.guardAvatarText}>{guard.full_name?.charAt(0)?.toUpperCase()}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.guardName}>{guard.full_name}</Text>
+                  <Text style={styles.guardGate}>{guard.gate_assigned || 'Unassigned'}</Text>
+                </View>
+                <View style={styles.guardStats}>
+                  <Text style={styles.guardStatValue}>{guard.requests_today}</Text>
+                  <Text style={styles.guardStatLabel}>Req</Text>
+                </View>
+                <View style={styles.guardStats}>
+                  <Text style={styles.guardStatValue}>{guard.passes_today}</Text>
+                  <Text style={styles.guardStatLabel}>Pass</Text>
+                </View>
+                <View style={styles.guardStats}>
+                  <Text style={styles.guardStatValue}>{guard.scans_today}</Text>
+                  <Text style={styles.guardStatLabel}>Scan</Text>
+                </View>
+              </View>
             ))}
-          </>
+          </View>
         )}
 
-        {/* Emergency Lockdown Button */}
-        {!lockdown && (
-          <TouchableOpacity style={styles.lockdownBtn} onPress={() => setLockdownModalVisible(true)} activeOpacity={0.8}>
-            <Ionicons name="alert-circle" size={22} color="#ef4444" />
-            <Text style={styles.lockdownBtnText}>Emergency Lockdown</Text>
-          </TouchableOpacity>
+        {/* ══════════ VISITORS INSIDE ══════════ */}
+        {stillInside.count > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="people" size={16} color="#22c55e" />
+              <Text style={styles.sectionTitle}>Visitors Inside ({stillInside.count})</Text>
+              <View style={styles.livePulse}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>LIVE</Text>
+              </View>
+            </View>
+            {(stillInside.visitors || []).slice(0, 5).map((v, idx) => (
+              <TouchableOpacity key={`inside-${v.pass_id}-${idx}`} style={styles.insideRow} onPress={() => { setSelectedVisitor(v); setShowVisitorModal(true); }}>
+                {v.visitor_photo ? (
+                  <Image source={{ uri: resolvePhotoUrl(v.visitor_photo) }} style={styles.insideAvatar} />
+                ) : (
+                  <View style={styles.insideAvatarPlaceholder}>
+                    <Text style={styles.insideAvatarLetter}>{v.visitor_name?.charAt(0)?.toUpperCase()}</Text>
+                  </View>
+                )}
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text style={styles.insideName}>{v.visitor_name}</Text>
+                  <Text style={styles.insideMeta}>{v.visit_type === 'professor_visit' ? `🎓 ${v.staff_name}` : '👥 General'}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.insideTime}>{getTimeInside(v.entry_time)}</Text>
+                  {new Date(v.valid_until) < new Date() && (
+                    <Text style={styles.overstayText}>⚠️ Overstay</Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
         )}
+
+        {/* ══════════ SYSTEM INFO ══════════ */}
+        <View style={styles.systemInfo}>
+          <View style={styles.systemRow}>
+            <Text style={styles.systemLabel}>Total Users</Text>
+            <Text style={styles.systemValue}>{s.total_users || 0}</Text>
+          </View>
+          <View style={styles.systemRow}>
+            <Text style={styles.systemLabel}>Guards</Text>
+            <Text style={styles.systemValue}>{s.total_guards || 0}</Text>
+          </View>
+          <View style={styles.systemRow}>
+            <Text style={styles.systemLabel}>Staff</Text>
+            <Text style={styles.systemValue}>{s.total_staff || 0}</Text>
+          </View>
+        </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* === LOCKDOWN MODAL === */}
+      {/* ══════════ LOCKDOWN MODAL ══════════ */}
       <Modal visible={lockdownModalVisible} transparent animationType="fade" onRequestClose={() => setLockdownModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.lockdownModalContainer}>
-            <Text style={styles.lockdownModalTitle}>🚨 Activate Campus Lockdown</Text>
-            <Text style={styles.lockdownModalSubtitle}>This will REVOKE all active passes and notify all guards & staff immediately.</Text>
-            <TextInput style={styles.lockdownModalInput} placeholder="Enter lockdown reason..." placeholderTextColor={Colors.textMuted}
-              value={lockdownReason} onChangeText={setLockdownReason} multiline textAlignVertical="top" />
-            <View style={styles.lockdownModalActions}>
-              <TouchableOpacity style={styles.lockdownModalCancelBtn} onPress={() => setLockdownModalVisible(false)}>
-                <Text style={styles.lockdownModalCancelText}>Cancel</Text>
+          <View style={styles.lockModalContainer}>
+            <View style={styles.lockModalIcon}>
+              <Ionicons name="lock-closed" size={40} color="#ef4444" />
+            </View>
+            <Text style={styles.lockModalTitle}>🚨 Activate Campus Lockdown</Text>
+            <Text style={styles.lockModalSub}>This will revoke ALL active passes and notify all personnel. This is irreversible until manually lifted.</Text>
+            <TextInput style={styles.lockModalInput} placeholder="Reason for lockdown..." placeholderTextColor={Colors.textMuted} value={lockdownReason} onChangeText={setLockdownReason} multiline />
+            <View style={styles.lockModalActions}>
+              <TouchableOpacity style={styles.lockCancelBtn} onPress={() => setLockdownModalVisible(false)}>
+                <Text style={styles.lockCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.lockdownConfirmBtn} onPress={handleActivateLockdown}>
+              <TouchableOpacity style={styles.lockConfirmBtn} onPress={handleActivateLockdown}>
                 <Ionicons name="lock-closed" size={16} color="#fff" />
-                <Text style={styles.lockdownConfirmText}>ACTIVATE LOCKDOWN</Text>
+                <Text style={styles.lockConfirmText}>ACTIVATE</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* === VISITOR DETAIL MODAL === */}
-      <Modal visible={showVisitorModal} transparent animationType="slide" onRequestClose={() => setShowVisitorModal(false)}>
+      {/* ══════════ BROADCAST MODAL ══════════ */}
+      <Modal visible={broadcastModalVisible} transparent animationType="fade" onRequestClose={() => setBroadcastModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.visitorModalContainer}>
-            <TouchableOpacity style={styles.visitorModalClose} onPress={() => setShowVisitorModal(false)}>
+          <View style={styles.broadcastContainer}>
+            <View style={styles.broadcastIcon}>
+              <Ionicons name="megaphone" size={36} color="#3b82f6" />
+            </View>
+            <Text style={styles.broadcastTitle}>📢 Broadcast to All Guards</Text>
+            <Text style={styles.broadcastSub}>Send an alert message to every active guard on duty.</Text>
+            <TextInput style={styles.broadcastInput} placeholder="Alert title (optional)" placeholderTextColor={Colors.textMuted} value={broadcastTitle} onChangeText={setBroadcastTitle} />
+            <TextInput style={[styles.broadcastInput, { minHeight: 80 }]} placeholder="Message *" placeholderTextColor={Colors.textMuted} value={broadcastMsg} onChangeText={setBroadcastMsg} multiline textAlignVertical="top" />
+            <View style={styles.lockModalActions}>
+              <TouchableOpacity style={styles.lockCancelBtn} onPress={() => setBroadcastModalVisible(false)}>
+                <Text style={styles.lockCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.lockConfirmBtn, { backgroundColor: '#3b82f6' }]} onPress={handleBroadcast} disabled={broadcastSending}>
+                <Ionicons name="send" size={14} color="#fff" />
+                <Text style={styles.lockConfirmText}>{broadcastSending ? 'Sending...' : 'SEND'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ══════════ VISITOR DETAIL MODAL ══════════ */}
+      <Modal visible={showVisitorModal} transparent animationType="slide" onRequestClose={() => setShowVisitorModal(false)}>
+        <View style={styles.vModalOverlay}>
+          <View style={styles.vModalContainer}>
+            <TouchableOpacity style={styles.vModalClose} onPress={() => setShowVisitorModal(false)}>
               <Ionicons name="close" size={24} color={Colors.text} />
             </TouchableOpacity>
-
             {selectedVisitor && (
-              <ScrollView contentContainerStyle={styles.visitorModalContent} showsVerticalScrollIndicator={false}>
-                <View style={styles.visitorModalHeader}>
+              <ScrollView contentContainerStyle={styles.vModalContent}>
+                <View style={styles.vModalHeader}>
                   {selectedVisitor.visitor_photo ? (
-                    <Image source={{ uri: resolvePhotoUrl(selectedVisitor.visitor_photo) }} style={styles.visitorModalAvatar} />
+                    <Image source={{ uri: resolvePhotoUrl(selectedVisitor.visitor_photo) }} style={styles.vModalAvatar} />
                   ) : (
-                    <View style={styles.visitorModalAvatarPlaceholder}>
-                      <Ionicons name="person" size={48} color={Colors.textMuted} />
+                    <View style={styles.vModalAvatarPlaceholder}>
+                      <Ionicons name="person" size={40} color={Colors.textMuted} />
                     </View>
                   )}
-                  <Text style={styles.visitorModalName}>{selectedVisitor.visitor_name}</Text>
-                  <TouchableOpacity style={styles.visitorModalPhoneBtn} onPress={() => Linking.openURL(`tel:${selectedVisitor.visitor_phone}`)}>
-                    <Ionicons name="call" size={16} color={Colors.primary} />
-                    <Text style={styles.visitorModalPhone}>{selectedVisitor.visitor_phone}</Text>
+                  <Text style={styles.vModalName}>{selectedVisitor.visitor_name}</Text>
+                  <Text style={styles.vModalPhone}>{selectedVisitor.visitor_phone}</Text>
+                </View>
+                <View style={styles.vModalStatusRow}>
+                  <View style={[styles.vModalStatusCard, { borderColor: '#22c55e40' }]}>
+                    <Text style={[styles.vModalStatusLabel, { color: '#22c55e' }]}>Entered</Text>
+                    <Text style={styles.vModalStatusVal}>{new Date(selectedVisitor.entry_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</Text>
+                  </View>
+                  <View style={[styles.vModalStatusCard, { borderColor: '#3b82f640' }]}>
+                    <Text style={[styles.vModalStatusLabel, { color: '#3b82f6' }]}>Duration</Text>
+                    <Text style={styles.vModalStatusVal}>{getTimeInside(selectedVisitor.entry_time)}</Text>
+                  </View>
+                </View>
+                <View style={styles.vModalActions}>
+                  <TouchableOpacity style={[styles.vModalActionBtn, { backgroundColor: '#ef444410', borderColor: '#ef444430' }]} onPress={() => handleForceExit(selectedVisitor.pass_id, selectedVisitor.visitor_name)}>
+                    <Ionicons name="log-out" size={18} color="#ef4444" />
+                    <Text style={[styles.vModalActionText, { color: '#ef4444' }]}>Force Exit</Text>
                   </TouchableOpacity>
-                </View>
-
-                {/* Status dashboard */}
-                <View style={styles.visitorStatusRow}>
-                  <View style={[styles.visitorStatusCard, { borderColor: '#22c55e50' }]}>
-                    <Ionicons name="log-in" size={20} color="#22c55e" />
-                    <Text style={[styles.visitorStatusLabel, { color: '#22c55e' }]}>Entry</Text>
-                    <Text style={styles.visitorStatusValue}>{new Date(selectedVisitor.entry_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</Text>
-                  </View>
-                  <View style={[styles.visitorStatusCard, { borderColor: '#3b82f650' }]}>
-                    <Ionicons name="time" size={20} color="#3b82f6" />
-                    <Text style={[styles.visitorStatusLabel, { color: '#3b82f6' }]}>Duration</Text>
-                    <Text style={styles.visitorStatusValue}>{getTimeInside(selectedVisitor.entry_time)}</Text>
-                  </View>
-                  <View style={[styles.visitorStatusCard, {
-                    borderColor: new Date(selectedVisitor.valid_until) < new Date() ? '#ef444450' : '#22c55e50',
-                  }]}>
-                    <Ionicons name="alarm" size={20} color={new Date(selectedVisitor.valid_until) < new Date() ? '#ef4444' : '#22c55e'} />
-                    <Text style={[styles.visitorStatusLabel, { color: new Date(selectedVisitor.valid_until) < new Date() ? '#ef4444' : '#22c55e' }]}>
-                      {new Date(selectedVisitor.valid_until) < new Date() ? 'EXPIRED' : 'Valid'}
-                    </Text>
-                    <Text style={styles.visitorStatusValue}>{new Date(selectedVisitor.valid_until).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</Text>
-                  </View>
-                </View>
-
-                {/* Details */}
-                <View style={styles.visitorInfoSection}>
-                  <InfoRow icon={selectedVisitor.visit_type === 'professor_visit' ? 'school' : 'people'} label="Type" value={selectedVisitor.visit_type === 'professor_visit' ? 'Professor Visit' : 'General Visit'} />
-                  {selectedVisitor.staff_name && <InfoRow icon="person" label="Visiting" value={selectedVisitor.staff_name} />}
-                  <InfoRow icon="card" label="Pass Code" value={selectedVisitor.pass_code} mono />
-                </View>
-
-                {new Date(selectedVisitor.valid_until) < new Date() && (
-                  <View style={styles.overstayAlert}>
-                    <Ionicons name="warning" size={22} color="#f59e0b" />
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Text style={styles.overstayAlertTitle}>⚠️ Overstay Alert</Text>
-                      <Text style={styles.overstayAlertText}>Pass expired. Visitor has been inside for {getTimeInside(selectedVisitor.entry_time)}.</Text>
-                    </View>
-                  </View>
-                )}
-
-                <View style={styles.visitorModalActions}>
-                  <TouchableOpacity style={[styles.visitorActionBtn, { backgroundColor: '#ef444415', borderColor: '#ef444440' }]}
-                    onPress={() => handleForceExit(selectedVisitor.pass_id, selectedVisitor.visitor_name)}>
-                    <Ionicons name="log-out" size={20} color="#ef4444" />
-                    <Text style={[styles.visitorActionText, { color: '#ef4444' }]}>Force Exit</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.visitorActionBtn, { backgroundColor: Colors.primary + '15', borderColor: Colors.primary + '40' }]}
-                    onPress={() => Linking.openURL(`tel:${selectedVisitor.visitor_phone}`)}>
-                    <Ionicons name="call" size={20} color={Colors.primary} />
-                    <Text style={[styles.visitorActionText, { color: Colors.primary }]}>Call</Text>
+                  <TouchableOpacity style={[styles.vModalActionBtn, { backgroundColor: Colors.primary + '10', borderColor: Colors.primary + '30' }]} onPress={() => Linking.openURL(`tel:${selectedVisitor.visitor_phone}`)}>
+                    <Ionicons name="call" size={18} color={Colors.primary} />
+                    <Text style={[styles.vModalActionText, { color: Colors.primary }]}>Call</Text>
                   </TouchableOpacity>
                 </View>
               </ScrollView>
@@ -422,125 +484,132 @@ export default function AdminDashboard({ navigation }) {
   );
 }
 
-function InfoRow({ icon, label, value, mono }) {
-  return (
-    <View style={styles.infoRow}>
-      <Ionicons name={icon} size={18} color={Colors.textMuted} />
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={[styles.infoValue, mono && { fontFamily: 'monospace', letterSpacing: 2 }]}>{value}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   content: { padding: Spacing.base, paddingBottom: 60 },
-  statsGrid: { marginBottom: Spacing.sm },
-  statsRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.sm },
-  sectionTitle: { color: Colors.textSecondary, fontSize: FontSizes.sm, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: Spacing.md, marginTop: Spacing.lg },
 
-  // Breakdown pills
-  breakdownRow: { flexDirection: 'row', gap: 8, marginBottom: Spacing.lg, flexWrap: 'wrap' },
-  breakdownPill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: Colors.surface, borderRadius: BorderRadius.full, borderWidth: 1, borderColor: Colors.border },
-  breakdownText: { fontSize: 11, color: Colors.textSecondary, fontWeight: '700' },
+  // Header
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: Spacing.lg, paddingTop: 50, paddingBottom: Spacing.base },
+  greeting: { color: Colors.textSecondary, fontSize: FontSizes.sm, fontWeight: '600' },
+  userName: { color: Colors.text, fontSize: FontSizes.xxl, fontWeight: '900', marginTop: 2 },
+  roleBadge: { color: Colors.primary, fontSize: 10, fontWeight: '800', marginTop: 4, letterSpacing: 2 },
+  headerRight: { alignItems: 'flex-end' },
+  notifBtn: { padding: 10, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.border, position: 'relative' },
+  notifBadge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ef4444', borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center' },
+  notifBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
 
   // Lockdown
-  lockdownBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a000015', borderRadius: BorderRadius.lg, padding: Spacing.lg, marginBottom: Spacing.md, borderWidth: 2, borderColor: '#FF333340' },
-  lockdownTitle: { color: '#FF3333', fontSize: FontSizes.base, fontWeight: '900' },
-  lockdownReason: { color: Colors.textSecondary, fontSize: 12, marginTop: 2 },
-  lockdownSince: { color: Colors.textMuted, fontSize: 10, marginTop: 2 },
-  lockdownBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: Spacing.md, borderRadius: BorderRadius.lg, borderWidth: 1.5, borderColor: '#ef444440', backgroundColor: '#ef444410', marginTop: Spacing.lg, marginBottom: Spacing.lg },
-  lockdownBtnText: { color: '#ef4444', fontSize: FontSizes.sm, fontWeight: '800' },
+  lockdownBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FF333318', paddingHorizontal: Spacing.lg, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: '#FF333340' },
+  lockdownTitle: { color: '#FF3333', fontSize: 13, fontWeight: '900' },
+  lockdownReason: { color: '#FF6666', fontSize: 11, marginTop: 2 },
 
-  // === VISITORS INSIDE CAMPUS (Enhanced) ===
-  insideSection: { backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: '#22c55e25', overflow: 'hidden', marginBottom: Spacing.md },
-  insideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  insideHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  insidePulse: { width: 10, height: 10, borderRadius: 5 },
-  insideTitle: { color: Colors.text, fontSize: FontSizes.base, fontWeight: '800' },
-  liveBadge: { backgroundColor: '#22c55e20', borderWidth: 1, borderColor: '#22c55e50', paddingHorizontal: 10, paddingVertical: 3, borderRadius: BorderRadius.full },
-  liveText: { fontSize: 10, color: '#22c55e', fontWeight: '900', letterSpacing: 1 },
-  insideList: { paddingHorizontal: Spacing.sm },
-  insideRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  insideRowOverstay: { backgroundColor: '#ef444408' },
-  insideAvatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: '#22c55e40' },
-  insideAvatarPlaceholder: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surfaceLight, justifyContent: 'center', alignItems: 'center' },
-  insideAvatarInitial: { color: Colors.textMuted, fontSize: 16, fontWeight: '800' },
-  insideNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  insideName: { color: Colors.text, fontSize: FontSizes.sm, fontWeight: '800', flex: 1 },
-  insideMeta: { color: Colors.textMuted, fontSize: 11, marginTop: 2 },
-  insideActions: { alignItems: 'center' },
-  overstayPill: { backgroundColor: '#f59e0b20', borderWidth: 1, borderColor: '#f59e0b50', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  overstayPillText: { fontSize: 8, color: '#f59e0b', fontWeight: '900' },
-  forceExitBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: BorderRadius.sm, borderWidth: 1, borderColor: '#ef444440', backgroundColor: '#ef444410' },
-  forceExitText: { color: '#ef4444', fontSize: 11, fontWeight: '700' },
+  // Analytics cards
+  analyticsRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  analyticsCard: { flex: 1, backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.md, borderLeftWidth: 3, borderWidth: 1, borderColor: Colors.border },
+  analyticsValue: { color: Colors.text, fontSize: FontSizes.xxl, fontWeight: '900' },
+  analyticsLabel: { color: Colors.textMuted, fontSize: 10, fontWeight: '700', marginTop: 4 },
+  trendPill: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6, backgroundColor: Colors.primary + '10', paddingHorizontal: 8, paddingVertical: 3, borderRadius: BorderRadius.full, alignSelf: 'flex-start' },
+  trendText: { color: Colors.primary, fontSize: 9, fontWeight: '700' },
+  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' },
 
-  // Pending alert
-  pendingAlert: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.warning + '12', borderRadius: BorderRadius.lg, padding: Spacing.lg, marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.warning + '30' },
-  pendingAlertGlow: { width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.warning + '20', justifyContent: 'center', alignItems: 'center' },
-  pendingAlertTitle: { color: Colors.text, fontSize: FontSizes.base, fontWeight: '800' },
-  pendingAlertSub: { color: Colors.textSecondary, fontSize: 12, marginTop: 2 },
+  // Today's overview
+  todayCard: { backgroundColor: Colors.surface, borderRadius: BorderRadius.xl, padding: Spacing.lg, marginBottom: Spacing.lg, borderWidth: 1, borderColor: Colors.border },
+  todayHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: Spacing.md },
+  todayTitle: { color: Colors.text, fontSize: FontSizes.md, fontWeight: '800' },
+  todayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
+  todayItem: { alignItems: 'center', flex: 1 },
+  todayValue: { fontSize: FontSizes.xl, fontWeight: '900' },
+  todayLabel: { color: Colors.textMuted, fontSize: 9, fontWeight: '700', textTransform: 'uppercase', marginTop: 2 },
+  todayDivider: { width: 1, height: 30, backgroundColor: Colors.border },
 
-  // Management console grid
-  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.md },
-  actionItem: { width: '48%', backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.lg, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
-  actionIconCircle: { width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
-  actionLabel: { color: Colors.text, fontSize: 14, fontWeight: '800' },
-  actionDesc: { color: Colors.textMuted, fontSize: 10, marginTop: 2, textAlign: 'center' },
+  // Section label
+  sectionLabel: { color: Colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: Spacing.sm, marginTop: Spacing.sm, paddingHorizontal: 4 },
 
-  // Guard activity cards (Enhanced)
-  guardCard: { padding: Spacing.md, marginBottom: 8 },
-  guardRow: { flexDirection: 'row', alignItems: 'center' },
-  guardAvatarCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.secondary + '15', justifyContent: 'center', alignItems: 'center' },
-  guardInitial: { color: Colors.secondary, fontSize: 18, fontWeight: '900' },
-  guardName: { color: Colors.text, fontSize: FontSizes.base, fontWeight: '700' },
-  guardGate: { color: Colors.textMuted, fontSize: 12, marginTop: 2 },
-  guardStats: { flexDirection: 'row', backgroundColor: Colors.surfaceLight, borderRadius: BorderRadius.sm, paddingHorizontal: 8, paddingVertical: 8 },
-  guardStatItem: { alignItems: 'center', paddingHorizontal: 8 },
-  guardStatDivider: { width: 1, backgroundColor: Colors.border },
-  guardStatNum: { color: Colors.text, fontSize: FontSizes.base, fontWeight: '900' },
-  guardStatLbl: { color: Colors.textMuted, fontSize: 7, fontWeight: '700', letterSpacing: 0.5, marginTop: 2 },
+  // Quick actions
+  quickActionsGrid: { flexDirection: 'row', gap: 10, marginBottom: Spacing.lg },
+  qaBtn: { flex: 1, alignItems: 'center', backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, paddingVertical: Spacing.md, borderWidth: 1, borderColor: Colors.border },
+  qaIcon: { width: 46, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 6, position: 'relative' },
+  qaLabel: { color: Colors.text, fontSize: 10, fontWeight: '700', textAlign: 'center', lineHeight: 14 },
+  qaBadge: { position: 'absolute', top: -4, right: -4, backgroundColor: '#ef4444', borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center' },
+  qaBadgeText: { color: '#fff', fontSize: 8, fontWeight: '800' },
+
+  // Management grid
+  mgmtGrid: { marginBottom: Spacing.lg },
+  mgmtCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.md, marginBottom: 8, borderWidth: 1, borderColor: Colors.border, gap: 12 },
+  mgmtIcon: { width: 42, height: 42, borderRadius: 12, justifyContent: 'center', alignItems: 'center', position: 'relative' },
+  mgmtLabel: { flex: 1, color: Colors.text, fontSize: FontSizes.sm, fontWeight: '700' },
+  mgmtBadge: { position: 'absolute', top: -4, right: -4, backgroundColor: Colors.warning, borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center' },
+  mgmtBadgeText: { color: '#fff', fontSize: 8, fontWeight: '800' },
+
+  // Section (guard activity, visitors inside)
+  section: { backgroundColor: Colors.surface, borderRadius: BorderRadius.xl, padding: Spacing.base, marginBottom: Spacing.lg, borderWidth: 1, borderColor: Colors.border },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: Spacing.sm },
+  sectionTitle: { color: Colors.text, fontSize: FontSizes.md, fontWeight: '800', flex: 1 },
+  livePulse: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22c55e15', paddingHorizontal: 8, paddingVertical: 3, borderRadius: BorderRadius.full },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' },
+  liveText: { fontSize: 9, color: '#22c55e', fontWeight: '900', letterSpacing: 1 },
+
+  // Guard rows
+  guardRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.border + '50', gap: 10 },
+  guardAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.primary + '15', justifyContent: 'center', alignItems: 'center' },
+  guardAvatarText: { color: Colors.primary, fontSize: 15, fontWeight: '800' },
+  guardName: { color: Colors.text, fontSize: FontSizes.sm, fontWeight: '700' },
+  guardGate: { color: Colors.textMuted, fontSize: 10, marginTop: 1 },
+  guardStats: { alignItems: 'center', minWidth: 32 },
+  guardStatValue: { color: Colors.text, fontSize: FontSizes.md, fontWeight: '800' },
+  guardStatLabel: { color: Colors.textMuted, fontSize: 8, fontWeight: '700' },
+
+  // Inside campus
+  insideRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.border + '50' },
+  insideAvatar: { width: 34, height: 34, borderRadius: 17 },
+  insideAvatarPlaceholder: { width: 34, height: 34, borderRadius: 17, backgroundColor: Colors.primary + '15', justifyContent: 'center', alignItems: 'center' },
+  insideAvatarLetter: { color: Colors.primary, fontSize: 14, fontWeight: '800' },
+  insideName: { color: Colors.text, fontSize: FontSizes.sm, fontWeight: '700' },
+  insideMeta: { color: Colors.textMuted, fontSize: 10, marginTop: 1 },
+  insideTime: { color: Colors.textSecondary, fontSize: FontSizes.sm, fontWeight: '700' },
+  overstayText: { color: '#f59e0b', fontSize: 9, fontWeight: '700', marginTop: 2 },
+
+  // System info
+  systemInfo: { backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.lg, borderWidth: 1, borderColor: Colors.border },
+  systemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.border + '50' },
+  systemLabel: { color: Colors.textMuted, fontSize: FontSizes.sm, fontWeight: '600' },
+  systemValue: { color: Colors.text, fontSize: FontSizes.base, fontWeight: '800' },
 
   // Modals
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  lockModalContainer: { backgroundColor: Colors.surface, borderRadius: BorderRadius.xxl, padding: Spacing.xl, width: '100%', maxWidth: 380, borderWidth: 2, borderColor: '#ef444440', alignItems: 'center' },
+  lockModalIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#ef444415', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+  lockModalTitle: { color: '#ef4444', fontSize: FontSizes.lg, fontWeight: '900', textAlign: 'center' },
+  lockModalSub: { color: Colors.textMuted, fontSize: FontSizes.sm, textAlign: 'center', marginTop: 6, marginBottom: 20, lineHeight: 18 },
+  lockModalInput: { width: '100%', backgroundColor: Colors.background, borderRadius: BorderRadius.md, padding: Spacing.md, color: Colors.text, fontSize: FontSizes.base, borderWidth: 1, borderColor: Colors.border, minHeight: 60, textAlignVertical: 'top' },
+  lockModalActions: { flexDirection: 'row', marginTop: Spacing.lg, gap: 12, width: '100%' },
+  lockCancelBtn: { flex: 1, paddingVertical: 14, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border, alignItems: 'center' },
+  lockCancelText: { color: Colors.textSecondary, fontWeight: '700' },
+  lockConfirmBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14, borderRadius: BorderRadius.md, backgroundColor: '#ef4444' },
+  lockConfirmText: { color: '#fff', fontWeight: '900', letterSpacing: 1 },
 
-  // Lockdown modal
-  lockdownModalContainer: { backgroundColor: Colors.surface, borderRadius: BorderRadius.xl, padding: Spacing.xl, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: Colors.border, elevation: 10 },
-  lockdownModalTitle: { color: Colors.text, fontSize: FontSizes.lg, fontWeight: '800', marginBottom: 4 },
-  lockdownModalSubtitle: { color: Colors.textMuted, fontSize: FontSizes.sm, marginBottom: Spacing.lg },
-  lockdownModalInput: { backgroundColor: Colors.background, color: Colors.text, borderRadius: BorderRadius.md, padding: Spacing.md, fontSize: FontSizes.base, borderWidth: 1, borderColor: Colors.border, minHeight: 80 },
-  lockdownModalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: Spacing.lg, gap: 12 },
-  lockdownModalCancelBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border },
-  lockdownModalCancelText: { color: Colors.textSecondary, fontWeight: '700', fontSize: FontSizes.sm },
-  lockdownConfirmBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: BorderRadius.md, backgroundColor: '#dc2626' },
-  lockdownConfirmText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  // Broadcast modal
+  broadcastContainer: { backgroundColor: Colors.surface, borderRadius: BorderRadius.xxl, padding: Spacing.xl, width: '100%', maxWidth: 380, borderWidth: 2, borderColor: '#3b82f640', alignItems: 'center' },
+  broadcastIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#3b82f615', justifyContent: 'center', alignItems: 'center', marginBottom: 14 },
+  broadcastTitle: { color: '#3b82f6', fontSize: FontSizes.lg, fontWeight: '900' },
+  broadcastSub: { color: Colors.textMuted, fontSize: FontSizes.sm, textAlign: 'center', marginTop: 4, marginBottom: 16 },
+  broadcastInput: { width: '100%', backgroundColor: Colors.background, borderRadius: BorderRadius.md, padding: Spacing.md, color: Colors.text, fontSize: FontSizes.base, borderWidth: 1, borderColor: Colors.border, marginBottom: 10 },
 
-  // Visitor detail modal (bottom sheet)
-  visitorModalContainer: { backgroundColor: Colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%', minHeight: '55%', width: '100%', paddingTop: 16, position: 'absolute', bottom: 0, left: 0, right: 0 },
-  visitorModalClose: { position: 'absolute', top: 16, right: 16, zIndex: 10, padding: 8, backgroundColor: Colors.surface, borderRadius: 20, borderWidth: 1, borderColor: Colors.border },
-  visitorModalContent: { padding: Spacing.lg, paddingBottom: 40 },
-  visitorModalHeader: { alignItems: 'center', marginBottom: Spacing.lg },
-  visitorModalAvatar: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: '#22c55e40' },
-  visitorModalAvatarPlaceholder: { width: 96, height: 96, borderRadius: 48, backgroundColor: Colors.surfaceLight, justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: Colors.border },
-  visitorModalName: { color: Colors.text, fontSize: FontSizes.xl, fontWeight: '900', marginTop: 12 },
-  visitorModalPhoneBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: BorderRadius.full, backgroundColor: Colors.primary + '10', borderWidth: 1, borderColor: Colors.primary + '30' },
-  visitorModalPhone: { color: Colors.primary, fontSize: FontSizes.base, fontWeight: '700' },
-
-  visitorStatusRow: { flexDirection: 'row', gap: 8, marginBottom: Spacing.lg },
-  visitorStatusCard: { flex: 1, alignItems: 'center', paddingVertical: 14, borderRadius: BorderRadius.lg, borderWidth: 1, backgroundColor: Colors.surface },
-  visitorStatusLabel: { fontSize: 10, fontWeight: '800', marginTop: 4, textTransform: 'uppercase' },
-  visitorStatusValue: { color: Colors.text, fontSize: FontSizes.base, fontWeight: '800', marginTop: 2 },
-
-  visitorInfoSection: { backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.lg, marginBottom: Spacing.lg, borderWidth: 1, borderColor: Colors.border },
-  infoRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.border, gap: 10 },
-  infoLabel: { color: Colors.textMuted, fontSize: FontSizes.sm, fontWeight: '700', width: 80 },
-  infoValue: { color: Colors.text, fontSize: FontSizes.base, fontWeight: '600', flex: 1 },
-
-  overstayAlert: { flexDirection: 'row', backgroundColor: '#f59e0b12', borderWidth: 1, borderColor: '#f59e0b40', borderRadius: BorderRadius.lg, padding: Spacing.lg, marginBottom: Spacing.lg },
-  overstayAlertTitle: { color: '#f59e0b', fontSize: FontSizes.base, fontWeight: '800' },
-  overstayAlertText: { color: Colors.textSecondary, fontSize: FontSizes.sm, marginTop: 4 },
-
-  visitorModalActions: { flexDirection: 'row', gap: 12 },
-  visitorActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: BorderRadius.lg, borderWidth: 1 },
-  visitorActionText: { fontSize: FontSizes.sm, fontWeight: '800' },
+  // Visitor modal
+  vModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  vModalContainer: { backgroundColor: Colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '75%', paddingTop: 16 },
+  vModalClose: { position: 'absolute', top: 16, right: 16, zIndex: 10, padding: 8, backgroundColor: Colors.surface, borderRadius: 20, borderWidth: 1, borderColor: Colors.border },
+  vModalContent: { padding: Spacing.xl, paddingBottom: 40 },
+  vModalHeader: { alignItems: 'center', marginBottom: Spacing.lg },
+  vModalAvatar: { width: 80, height: 80, borderRadius: 40, borderWidth: 3, borderColor: '#22c55e40' },
+  vModalAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.surfaceLight, justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: Colors.border },
+  vModalName: { color: Colors.text, fontSize: FontSizes.xl, fontWeight: '900', marginTop: 12 },
+  vModalPhone: { color: Colors.primary, fontSize: FontSizes.base, fontWeight: '700', marginTop: 4 },
+  vModalStatusRow: { flexDirection: 'row', gap: 10, marginBottom: Spacing.lg },
+  vModalStatusCard: { flex: 1, alignItems: 'center', paddingVertical: 14, borderRadius: BorderRadius.lg, borderWidth: 1, backgroundColor: Colors.surface },
+  vModalStatusLabel: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  vModalStatusVal: { color: Colors.text, fontSize: FontSizes.base, fontWeight: '800', marginTop: 4 },
+  vModalActions: { flexDirection: 'row', gap: 12 },
+  vModalActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: BorderRadius.lg, borderWidth: 1 },
+  vModalActionText: { fontSize: FontSizes.sm, fontWeight: '800' },
 });

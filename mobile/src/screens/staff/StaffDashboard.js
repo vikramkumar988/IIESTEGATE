@@ -1,15 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Image, Alert, Animated, Vibration, AppState, Modal, TextInput, Share, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-// Sound support: add a notification.mp3 to assets/ and uncomment Audio import to enable
-// import { Audio } from 'expo-av';
 import { useAuth } from '../../context/AuthContext';
-import { Card, StatCard, Header, Badge, LoadingScreen, EmptyState, Button } from '../../components';
-import { visitService, notificationService, userService, dashboardService, preRegService, getBaseUrl, getPreRegUrl } from '../../services/api';
-import { Colors, Spacing, FontSizes, BorderRadius } from '../../theme';
+import { Card, Badge, LoadingScreen, EmptyState, Button } from '../../components';
+import { visitService, notificationService, userService, dashboardService, preRegService, getPreRegUrl } from '../../services/api';
+import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../theme';
 import { resolvePhotoUrl } from '../../utils/photoUrl';
-
-
 
 const TABS = [
   { key: 'pending', label: 'Pending', icon: 'hourglass' },
@@ -25,15 +21,18 @@ const AVAIL_OPTIONS = [
   { key: 'unavailable', label: 'Unavailable', icon: 'close-circle', color: '#ef4444' },
 ];
 
-function getToday() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good Morning';
+  if (h < 17) return 'Good Afternoon';
+  return 'Good Evening';
 }
 
-// Format response time nicely
+function getToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function formatResponseTime(minutes) {
   if (!minutes && minutes !== 0) return null;
   const m = Math.round(minutes);
@@ -44,20 +43,14 @@ function formatResponseTime(minutes) {
   return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
 }
 
-function safeDate(value) {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
 function safeTime(value, fallback = '—') {
-  const d = safeDate(value);
-  return d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : fallback;
+  const d = value ? new Date(value) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : fallback;
 }
 
 function safeDateLabel(value, fallback = '—') {
-  const d = safeDate(value);
-  return d ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : fallback;
+  const d = value ? new Date(value) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : fallback;
 }
 
 export default function StaffDashboard({ navigation }) {
@@ -75,13 +68,13 @@ export default function StaffDashboard({ navigation }) {
   const [lastRefresh, setLastRefresh] = useState(null);
   const [activeVisitors, setActiveVisitors] = useState([]);
   const [activeVisitorsSummary, setActiveVisitorsSummary] = useState({ inside: 0, left: 0, not_entered: 0, total: 0 });
-  
-  // Reject modal state
+
+  // Reject modal
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectTargetId, setRejectTargetId] = useState(null);
-  
-  // Push notification popup state
+
+  // Push popup
   const [popupVisible, setPopupVisible] = useState(false);
   const [popupData, setPopupData] = useState(null);
   const popupAnim = useRef(new Animated.Value(-120)).current;
@@ -89,16 +82,15 @@ export default function StaffDashboard({ navigation }) {
   const hasInitializedRef = useRef(false);
   const soundRef = useRef(null);
 
-  const playNotificationSound = () => {
-    // Vibrate pattern: short-pause-short-pause-long
-    Vibration.vibrate([0, 200, 100, 200, 100, 400]);
-  };
+  // SOS modal
+  const [showSOSModal, setShowSOSModal] = useState(false);
+  const [sosMessage, setSosMessage] = useState('');
+  const [sosSending, setSosSending] = useState(false);
 
   const showPopup = (visitorName, purpose) => {
     setPopupData({ visitorName, purpose });
     setPopupVisible(true);
-    playNotificationSound();
-    
+    Vibration.vibrate([0, 200, 100, 200, 100, 400]);
     Animated.sequence([
       Animated.spring(popupAnim, { toValue: 0, useNativeDriver: true, tension: 80, friction: 10 }),
       Animated.delay(4000),
@@ -111,7 +103,6 @@ export default function StaffDashboard({ navigation }) {
       const today = getToday();
       const [pendingRes, approvedTodayRes, rejectedTodayRes, notifRes, lockdownRes, preRegRes, activeRes] = await Promise.all([
         visitService.getStaffHistory({ limit: 100, status: 'pending' }),
-        // FIX: Use backend date filters instead of fragile client-side filtering
         visitService.getStaffHistory({ limit: 50, status: 'approved', date_from: today, date_to: today }),
         visitService.getStaffHistory({ limit: 50, status: 'rejected', date_from: today, date_to: today }),
         notificationService.getUnreadCount(),
@@ -124,7 +115,7 @@ export default function StaffDashboard({ navigation }) {
       const approvedToday = approvedTodayRes.data?.data?.history || [];
       const rejectedToday = rejectedTodayRes.data?.data?.history || [];
       const preVisits = preRegRes.data?.data?.pre_registrations || [];
-      
+
       setUnreadCount(notifRes.data?.data?.count || 0);
       setLockdown(lockdownRes.data?.data?.is_lockdown ? lockdownRes.data.data.lockdown : null);
       setPreVisitData(preVisits);
@@ -132,11 +123,9 @@ export default function StaffDashboard({ navigation }) {
       setActiveVisitorsSummary(activeRes.data?.data?.summary || { inside: 0, left: 0, not_entered: 0, total: 0 });
       setLastRefresh(new Date());
 
-      // Calculate average response time from today's approved requests
       const responseTimes = approvedToday.filter(v => v.response_time_minutes != null).map(v => parseFloat(v.response_time_minutes));
       const avgResponseTime = responseTimes.length > 0 ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length : null;
 
-      // Detect new pending requests — popup with vibration
       if (hasInitializedRef.current && pending.length > prevPendingRef.current) {
         const newest = pending[0];
         if (newest) showPopup(newest.visitor_name, newest.purpose);
@@ -144,19 +133,12 @@ export default function StaffDashboard({ navigation }) {
       hasInitializedRef.current = true;
       prevPendingRef.current = pending.length;
 
-      setStats({
-        pending: pending.length,
-        approvedToday: approvedToday.length,
-        rejectedToday: rejectedToday.length,
-        preVisits: preVisits.length,
-        avgResponseTime,
-      });
+      setStats({ pending: pending.length, approvedToday: approvedToday.length, rejectedToday: rejectedToday.length, preVisits: preVisits.length, avgResponseTime });
 
       if (activeTab === 'pending') setTabData(pending);
       else if (activeTab === 'pre_visits') setTabData(preVisits);
       else if (activeTab === 'approved') setTabData(approvedToday);
       else setTabData(rejectedToday);
-
     } catch (e) {
       console.log('Staff Dashboard error:', e);
     } finally {
@@ -167,21 +149,11 @@ export default function StaffDashboard({ navigation }) {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { const u = navigation.addListener('focus', loadData); return u; }, [navigation, loadData]);
-
-  // Auto-refresh every 15 seconds for real-time feel
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (AppState.currentState === 'active') loadData();
-    }, 15000);
+    const interval = setInterval(() => { if (AppState.currentState === 'active') loadData(); }, 15000);
     return () => clearInterval(interval);
   }, [loadData]);
-
-  // Cleanup sound on unmount
-  useEffect(() => {
-    return () => {
-      if (soundRef.current?.unloadAsync) soundRef.current.unloadAsync();
-    };
-  }, []);
+  useEffect(() => { return () => { if (soundRef.current?.unloadAsync) soundRef.current.unloadAsync(); }; }, []);
 
   const handleQuickApprove = async (requestId) => {
     setActionLoading(requestId);
@@ -189,65 +161,57 @@ export default function StaffDashboard({ navigation }) {
       await visitService.approve(requestId, { validity_hours: 4 });
       Alert.alert('Approved ✅', 'Request approved for 4 hours');
       loadData();
-    } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Failed to approve');
-    } finally {
-      setActionLoading(null);
-    }
+    } catch (e) { Alert.alert('Error', e.response?.data?.message || 'Failed'); }
+    finally { setActionLoading(null); }
   };
 
-  const handleQuickReject = (requestId) => {
-    setRejectTargetId(requestId);
-    setRejectReason('');
-    setRejectModalVisible(true);
-  };
+  const handleQuickReject = (requestId) => { setRejectTargetId(requestId); setRejectReason(''); setRejectModalVisible(true); };
 
   const handlePreVisitApprove = async (preRegId) => {
     setActionLoading(preRegId);
     try {
       await preRegService.approve(preRegId, { validity_hours: 8 });
-      Alert.alert('Approved ✅', 'Pre-registration approved. QR code & SMS sent to visitor.');
+      Alert.alert('Approved ✅', 'Pre-registration approved. QR & SMS sent to visitor.');
       loadData();
-    } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Failed to approve');
-    } finally {
-      setActionLoading(null);
-    }
+    } catch (e) { Alert.alert('Error', e.response?.data?.message || 'Failed'); }
+    finally { setActionLoading(null); }
   };
 
-  const handlePreVisitReject = async (preRegId) => {
-    setRejectTargetId(preRegId);
-    setRejectReason('');
-    setRejectModalVisible(true);
-  };
+  const handlePreVisitReject = (preRegId) => { setRejectTargetId(preRegId); setRejectReason(''); setRejectModalVisible(true); };
 
   const confirmReject = async () => {
     setRejectModalVisible(false);
     if (!rejectTargetId) return;
     setActionLoading(rejectTargetId);
     try {
-      // Check if this is a pre-visit rejection
       const isPreVisit = preVisitData.some(p => p.id === rejectTargetId);
-      if (isPreVisit) {
-        await preRegService.reject(rejectTargetId, { reason: rejectReason.trim() || undefined });
-      } else {
-        await visitService.reject(rejectTargetId, { reason: rejectReason.trim() || undefined });
-      }
+      if (isPreVisit) await preRegService.reject(rejectTargetId, { reason: rejectReason.trim() || undefined });
+      else await visitService.reject(rejectTargetId, { reason: rejectReason.trim() || undefined });
       Alert.alert('Rejected', 'Request has been rejected');
       loadData();
-    } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Failed to reject');
-    } finally {
-      setActionLoading(null);
-      setRejectTargetId(null);
-    }
+    } catch (e) { Alert.alert('Error', e.response?.data?.message || 'Failed'); }
+    finally { setActionLoading(null); setRejectTargetId(null); }
+  };
+
+  const handleSOS = async () => {
+    setSosSending(true);
+    try {
+      Vibration.vibrate([0, 300, 100, 300, 100, 500]);
+      await dashboardService.sendSOS({ message: sosMessage.trim() || 'Emergency SOS from staff!', location: user?.department || 'Unknown' });
+      Alert.alert('🚨 SOS Sent', 'Emergency alert sent to all admins and guards.');
+      setShowSOSModal(false);
+      setSosMessage('');
+    } catch (e) { Alert.alert('Error', 'Failed to send SOS'); }
+    finally { setSosSending(false); }
   };
 
   if (loading) return <LoadingScreen />;
 
+  const availObj = AVAIL_OPTIONS.find(o => o.key === availability) || AVAIL_OPTIONS[0];
+
   return (
     <View style={styles.container}>
-      {/* Push Notification Popup Banner */}
+      {/* Push Notification Popup */}
       {popupVisible && popupData && (
         <Animated.View style={[styles.popupBanner, { transform: [{ translateY: popupAnim }] }]}>
           <View style={styles.popupGlow}><Ionicons name="alert-circle" size={28} color="#fff" /></View>
@@ -255,22 +219,36 @@ export default function StaffDashboard({ navigation }) {
             <Text style={styles.popupTitle}>🔔 New Visit Request!</Text>
             <Text style={styles.popupText} numberOfLines={1}>{popupData.visitorName} — {popupData.purpose}</Text>
           </View>
-          <TouchableOpacity style={styles.popupAction} onPress={() => {
-            popupAnim.setValue(-120);
-            setPopupVisible(false);
-            setActiveTab('pending');
-          }}>
+          <TouchableOpacity style={styles.popupAction} onPress={() => { popupAnim.setValue(-120); setPopupVisible(false); setActiveTab('pending'); }}>
             <Text style={styles.popupActionText}>View</Text>
           </TouchableOpacity>
         </Animated.View>
       )}
 
-      <Header title="Staff Portal" subtitle={user?.full_name} rightIcon="notifications-outline" onRightPress={() => navigation.navigate('Notifications')} rightBadge={unreadCount} />
+      {/* ══════════ HEADER ══════════ */}
+      <View style={styles.header}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.greeting}>{getGreeting()} ☀️</Text>
+          <Text style={styles.userName}>{user?.full_name}</Text>
+          <View style={styles.deptRow}>
+            <View style={[styles.availIndicator, { backgroundColor: availObj.color }]} />
+            <Text style={styles.deptText}>{user?.department || 'Staff'} • {availObj.label}</Text>
+          </View>
+        </View>
+        <View style={styles.headerRight}>
+          <Text style={styles.headerTime}>{new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</Text>
+          <Text style={styles.headerDate}>{new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</Text>
+          <TouchableOpacity style={styles.notifBtn} onPress={() => navigation.navigate('Notifications')}>
+            <Ionicons name="notifications-outline" size={22} color={Colors.text} />
+            {unreadCount > 0 && <View style={styles.notifBadge}><Text style={styles.notifBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text></View>}
+          </TouchableOpacity>
+        </View>
+      </View>
 
-      {/* 🚨 LOCKDOWN BANNER */}
+      {/* 🚨 LOCKDOWN */}
       {lockdown && (
         <View style={styles.lockdownBanner}>
-          <Ionicons name="lock-closed" size={24} color="#FF3333" />
+          <Ionicons name="lock-closed" size={20} color="#FF3333" />
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Text style={styles.lockdownTitle}>🚨 CAMPUS LOCKDOWN ACTIVE</Text>
             <Text style={styles.lockdownReason}>All visitor entry suspended — {lockdown.reason}</Text>
@@ -278,160 +256,149 @@ export default function StaffDashboard({ navigation }) {
         </View>
       )}
 
-      {/* Share Pre-Reg Link */}
-      <TouchableOpacity style={styles.sharePreRegBtn} onPress={async () => {
-        const url = getPreRegUrl();
-        try {
-          await Share.share({
-            message: `Pre-register your campus visit to IIEST Shibpur:\n${url}\n\nFill the form to get your QR code approved before arriving.`,
-            title: 'IIEST Pre-Registration',
-          });
-        } catch (e) { console.log('Share error:', e); }
-      }}>
-        <Ionicons name="share-social" size={16} color="#a78bfa" />
-        <Text style={styles.sharePreRegText}>Share Pre-Registration Link with Visitors</Text>
-        <Ionicons name="chevron-forward" size={14} color="#a78bfa" />
-      </TouchableOpacity>
-
-      {/* Quick Actions Row */}
-      <View style={styles.quickActionsRow}>
-        <TouchableOpacity style={styles.quickActionBtn} onPress={() => navigation.navigate('ScanQR', { mode: 'verify' })}>
-          <View style={[styles.quickActionIcon, { backgroundColor: '#3b82f615' }]}>
-            <Ionicons name="qr-code" size={20} color="#3b82f6" />
-          </View>
-          <Text style={styles.quickActionLabel}>Scan QR</Text>
-          <Text style={styles.quickActionSub}>Verify visitor</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.quickActionBtn} onPress={() => setActiveTab('pending')}>
-          <View style={[styles.quickActionIcon, { backgroundColor: Colors.warning + '15' }]}>
-            <Ionicons name="hourglass" size={20} color={Colors.warning} />
-          </View>
-          <Text style={styles.quickActionLabel}>{stats.pending}</Text>
-          <Text style={styles.quickActionSub}>Pending</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.quickActionBtn} onPress={() => navigation.navigate('ApprovalHistory')}>
-          <View style={[styles.quickActionIcon, { backgroundColor: '#a78bfa15' }]}>
-            <Ionicons name="time" size={20} color="#a78bfa" />
-          </View>
-          <Text style={styles.quickActionLabel}>History</Text>
-          <Text style={styles.quickActionSub}>All records</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Availability Toggle */}
-      <View style={styles.availRow}>
-        {AVAIL_OPTIONS.map((opt) => (
-          <TouchableOpacity
-            key={opt.key}
-            style={[styles.availChip, availability === opt.key && { backgroundColor: opt.color + '20', borderColor: opt.color }]}
-            onPress={async () => {
-              setAvailability(opt.key);
-              try { await userService.updateAvailability({ availability: opt.key }); } catch (e) { console.log('Availability error:', e); }
-            }}
-          >
-            <Ionicons name={opt.icon} size={14} color={availability === opt.key ? opt.color : Colors.textMuted} />
-            <Text style={[styles.availText, availability === opt.key && { color: opt.color }]} numberOfLines={1}>{opt.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
       <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} tintColor={Colors.primary} />}>
-        
-        {/* Stats Row */}
-        <View style={styles.statsContainer}>
-          <StatCard icon="time" label="Awaiting" value={stats.pending} color={Colors.warning} />
-          <StatCard icon="checkmark-done" label="Cleared" value={stats.approvedToday} color={Colors.success} />
-          <StatCard icon="close-circle" label="Denied" value={stats.rejectedToday} color={Colors.danger} />
+
+        {/* ══════════ STAT CARDS ══════════ */}
+        <View style={styles.statsRow}>
+          <View style={[styles.statCard, { borderLeftColor: stats.pending > 0 ? Colors.warning : Colors.textMuted }]}>
+            <Ionicons name="hourglass" size={18} color={stats.pending > 0 ? Colors.warning : Colors.textMuted} />
+            <Text style={styles.statValue}>{stats.pending}</Text>
+            <Text style={styles.statLabel}>Pending{'\n'}Approvals</Text>
+            {stats.pending > 0 && <View style={styles.statAlert}><Text style={styles.statAlertText}>!</Text></View>}
+          </View>
+          <View style={[styles.statCard, { borderLeftColor: Colors.success }]}>
+            <Ionicons name="people" size={18} color={Colors.success} />
+            <Text style={styles.statValue}>{activeVisitorsSummary.inside}</Text>
+            <Text style={styles.statLabel}>Today's{'\n'}Visitors</Text>
+          </View>
+          <View style={[styles.statCard, { borderLeftColor: '#a78bfa' }]}>
+            <Ionicons name="document-text" size={18} color="#a78bfa" />
+            <Text style={styles.statValue}>{stats.preVisits}</Text>
+            <Text style={styles.statLabel}>Pre-{'\n'}registrations</Text>
+          </View>
         </View>
 
-        {/* Active Visitors Section */}
+        {/* ══════════ QUICK ACTIONS ══════════ */}
+        <Text style={styles.sectionLabel}>QUICK ACTIONS</Text>
+        <View style={styles.quickActions}>
+          <TouchableOpacity style={styles.qaBtn} onPress={() => navigation.navigate('CreateVisitRequest')}>
+            <View style={[styles.qaIcon, { backgroundColor: Colors.primary + '12' }]}>
+              <Ionicons name="add-circle" size={22} color={Colors.primary} />
+            </View>
+            <Text style={styles.qaLabel}>Create Visit{'\n'}Request</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.qaBtn} onPress={async () => {
+            try { await Share.share({ message: `Pre-register your campus visit to IIEST Shibpur:\n${getPreRegUrl()}`, title: 'IIEST Pre-Reg' }); } catch (e) {}
+          }}>
+            <View style={[styles.qaIcon, { backgroundColor: '#a78bfa12' }]}>
+              <Ionicons name="share-social" size={22} color="#a78bfa" />
+            </View>
+            <Text style={styles.qaLabel}>Share{'\n'}Pre-Reg Link</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.qaBtn} onPress={() => navigation.navigate('ApprovalHistory')}>
+            <View style={[styles.qaIcon, { backgroundColor: Colors.success + '12' }]}>
+              <Ionicons name="checkmark-done" size={22} color={Colors.success} />
+            </View>
+            <Text style={styles.qaLabel}>My{'\n'}Approvals</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Availability */}
+        <Text style={styles.sectionLabel}>AVAILABILITY STATUS</Text>
+        <View style={styles.availRow}>
+          {AVAIL_OPTIONS.map((opt) => (
+            <TouchableOpacity
+              key={opt.key}
+              style={[styles.availChip, availability === opt.key && { backgroundColor: opt.color + '18', borderColor: opt.color }]}
+              onPress={async () => {
+                setAvailability(opt.key);
+                try { await userService.updateAvailability({ availability: opt.key }); } catch (e) {}
+              }}
+            >
+              <Ionicons name={opt.icon} size={14} color={availability === opt.key ? opt.color : Colors.textMuted} />
+              <Text style={[styles.availText, availability === opt.key && { color: opt.color }]} numberOfLines={1}>{opt.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* ══════════ TODAY'S SUMMARY ══════════ */}
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryHeader}>
+            <Ionicons name="analytics" size={16} color={Colors.primary} />
+            <Text style={styles.summaryTitle}>Today's Summary</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryValue, { color: Colors.primary }]}>{stats.approvedToday + stats.rejectedToday}</Text>
+              <Text style={styles.summaryItemLabel}>Handled</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryValue, { color: Colors.success }]}>
+                {stats.approvedToday + stats.rejectedToday > 0 ? Math.round((stats.approvedToday / (stats.approvedToday + stats.rejectedToday)) * 100) : 0}%
+              </Text>
+              <Text style={styles.summaryItemLabel}>Approval Rate</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryValue, { color: '#a78bfa' }]}>{stats.avgResponseTime != null ? formatResponseTime(stats.avgResponseTime) : '—'}</Text>
+              <Text style={styles.summaryItemLabel}>Avg Response</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ══════════ ACTIVE VISITORS ══════════ */}
         {activeVisitorsSummary.total > 0 && (
-          <View style={styles.activeVisitorsSection}>
-            <View style={styles.activeVisitorsHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={[styles.activeDot, { backgroundColor: activeVisitorsSummary.inside > 0 ? '#22c55e' : Colors.textMuted }]} />
-                <Text style={styles.activeVisitorsTitle}>Your Active Visitors</Text>
-              </View>
-              <View style={styles.activeVisitorsBadges}>
-                {activeVisitorsSummary.inside > 0 && (
-                  <View style={[styles.activeMiniPill, { backgroundColor: '#22c55e20', borderColor: '#22c55e50' }]}>
-                    <Text style={[styles.activeMiniText, { color: '#22c55e' }]}>🟢 {activeVisitorsSummary.inside} Inside</Text>
-                  </View>
-                )}
-                {activeVisitorsSummary.left > 0 && (
-                  <View style={[styles.activeMiniPill, { backgroundColor: '#ef444420', borderColor: '#ef444450' }]}>
-                    <Text style={[styles.activeMiniText, { color: '#ef4444' }]}>🔴 {activeVisitorsSummary.left} Left</Text>
-                  </View>
-                )}
-                {activeVisitorsSummary.not_entered > 0 && (
-                  <View style={[styles.activeMiniPill, { backgroundColor: '#f59e0b20', borderColor: '#f59e0b50' }]}>
-                    <Text style={[styles.activeMiniText, { color: '#f59e0b' }]}>⚪ {activeVisitorsSummary.not_entered} Awaiting</Text>
-                  </View>
-                )}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="people" size={16} color="#22c55e" />
+              <Text style={styles.sectionTitle}>Your Active Visitors</Text>
+              <View style={styles.livePulse}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>LIVE</Text>
               </View>
             </View>
+            <View style={styles.activeStatusPills}>
+              {activeVisitorsSummary.inside > 0 && (
+                <View style={[styles.activePill, { backgroundColor: '#22c55e15', borderColor: '#22c55e40' }]}>
+                  <Text style={[styles.activePillText, { color: '#22c55e' }]}>🟢 {activeVisitorsSummary.inside} Inside</Text>
+                </View>
+              )}
+              {activeVisitorsSummary.left > 0 && (
+                <View style={[styles.activePill, { backgroundColor: '#ef444415', borderColor: '#ef444440' }]}>
+                  <Text style={[styles.activePillText, { color: '#ef4444' }]}>🔴 {activeVisitorsSummary.left} Left</Text>
+                </View>
+              )}
+              {activeVisitorsSummary.not_entered > 0 && (
+                <View style={[styles.activePill, { backgroundColor: '#f59e0b15', borderColor: '#f59e0b40' }]}>
+                  <Text style={[styles.activePillText, { color: '#f59e0b' }]}>⚪ {activeVisitorsSummary.not_entered} Awaiting</Text>
+                </View>
+              )}
+            </View>
             {activeVisitors.filter(v => v.campus_status === 'inside').slice(0, 5).map((v, idx) => (
-              <TouchableOpacity key={`active-${v.request_id}-${idx}`} style={styles.activeVisitorRow}
-                onPress={() => navigation.navigate('RequestDetail', { requestId: v.request_id })}>
+              <TouchableOpacity key={`active-${v.request_id}-${idx}`} style={styles.activeRow} onPress={() => navigation.navigate('RequestDetail', { requestId: v.request_id })}>
                 {v.visitor_photo ? (
                   <Image source={{ uri: resolvePhotoUrl(v.visitor_photo) }} style={styles.activeAvatar} />
                 ) : (
                   <View style={styles.activeAvatarPlaceholder}>
-                    <Text style={styles.activeAvatarInitial}>{v.visitor_name?.charAt(0)?.toUpperCase()}</Text>
+                    <Text style={styles.activeAvatarLetter}>{v.visitor_name?.charAt(0)?.toUpperCase()}</Text>
                   </View>
                 )}
                 <View style={{ flex: 1, marginLeft: 10 }}>
-                  <Text style={styles.activeVisitorName}>{v.visitor_name}</Text>
-                  <Text style={styles.activeVisitorMeta}>
+                  <Text style={styles.activeName}>{v.visitor_name}</Text>
+                  <Text style={styles.activeMeta}>
                     {v.entry_time ? `Entered ${new Date(v.entry_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Not entered'}
                     {v.minutes_inside ? ` • ${Math.round(v.minutes_inside)}m ago` : ''}
                   </Text>
-                  {v.referred_by_name && <Text style={styles.activeVisitorMeta}>↩️ Referred by {v.referred_by_name}</Text>}
                 </View>
-                <View style={styles.activeStatusBadge}>
-                  <View style={[styles.activeStatusDot, { backgroundColor: v.campus_status === 'inside' ? '#22c55e' : v.campus_status === 'left' ? '#ef4444' : '#f59e0b' }]} />
-                  <Text style={styles.activeStatusText}>{v.campus_status === 'inside' ? 'Inside' : v.campus_status === 'left' ? 'Left' : 'Waiting'}</Text>
-                </View>
+                <View style={[styles.activeStatusDot, { backgroundColor: v.campus_status === 'inside' ? '#22c55e' : v.campus_status === 'left' ? '#ef4444' : '#f59e0b' }]} />
               </TouchableOpacity>
             ))}
           </View>
         )}
 
-        {/* Today's Summary Card */}
-        <View style={styles.dailySummary}>
-          <View style={styles.dailySummaryHeader}>
-            <Ionicons name="analytics" size={16} color={Colors.primary} />
-            <Text style={styles.dailySummaryTitle}>Today's Summary</Text>
-          </View>
-          <View style={styles.dailySummaryRow}>
-            <View style={styles.dailySummaryItem}>
-              <Text style={styles.dailySummaryValue}>{stats.approvedToday + stats.rejectedToday}</Text>
-              <Text style={styles.dailySummaryLabel}>Handled</Text>
-            </View>
-            <View style={[styles.dailySummaryDivider]} />
-            <View style={styles.dailySummaryItem}>
-              <Text style={[styles.dailySummaryValue, { color: Colors.success }]}>
-                {stats.approvedToday + stats.rejectedToday > 0
-                  ? Math.round((stats.approvedToday / (stats.approvedToday + stats.rejectedToday)) * 100) : 0}%
-              </Text>
-              <Text style={styles.dailySummaryLabel}>Approval Rate</Text>
-            </View>
-            <View style={[styles.dailySummaryDivider]} />
-            <View style={styles.dailySummaryItem}>
-              <Text style={[styles.dailySummaryValue, { color: '#a78bfa' }]}>
-                {stats.avgResponseTime != null ? formatResponseTime(stats.avgResponseTime) : '—'}
-              </Text>
-              <Text style={styles.dailySummaryLabel}>Avg Response</Text>
-            </View>
-            <View style={[styles.dailySummaryDivider]} />
-            <View style={styles.dailySummaryItem}>
-              <Text style={[styles.dailySummaryValue, { color: '#f59e0b' }]}>{stats.preVisits}</Text>
-              <Text style={styles.dailySummaryLabel}>Pre-Visits</Text>
-            </View>
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>Recent Activity</Text>
+        {/* ══════════ ACTIVITY TABS ══════════ */}
+        <Text style={styles.sectionLabel}>RECENT ACTIVITY</Text>
         <View style={styles.tabRow}>
           {TABS.map((tab) => (
             <TouchableOpacity key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}>
@@ -443,178 +410,144 @@ export default function StaffDashboard({ navigation }) {
 
         <View style={styles.listSection}>
           {tabData.length === 0 && activeTab !== 'pre_visits' ? (
-            <EmptyState icon={activeTab === 'pending' ? 'cafe-outline' : 'calendar-outline'} title={activeTab === 'pending' ? "Coffee break?" : "No records today"} message={activeTab === 'pending' ? "All requests have been handled." : "Requests will appear here as they come."} compact />
+            <EmptyState icon={activeTab === 'pending' ? 'cafe-outline' : 'calendar-outline'} title={activeTab === 'pending' ? "Coffee break?" : "No records today"} message={activeTab === 'pending' ? "All requests have been handled." : "Requests will appear here."} />
           ) : activeTab !== 'pre_visits' ? (
             tabData.slice(0, 15).map((request, reqIndex) => (
-              <Card key={`req-${request.id}-${reqIndex}`} style={[styles.requestCard, request.status === 'pending' && styles.requestCardPending]} onPress={() => navigation.navigate('RequestDetail', { requestId: request.id })}>
+              <TouchableOpacity key={`req-${request.id}-${reqIndex}`} style={[styles.requestCard, request.status === 'pending' && styles.requestCardPending]} onPress={() => navigation.navigate('RequestDetail', { requestId: request.id })} activeOpacity={0.7}>
                 <View style={styles.requestRow}>
-                  <View style={styles.userSection}>
-                    {request.visitor_photo ? (
-                      <Image source={{ uri: resolvePhotoUrl(request.visitor_photo) }} style={styles.avatar} />
-                    ) : (
-                      <View style={styles.avatarPlaceholder}><Ionicons name="person" size={24} color={Colors.textMuted} /></View>
-                    )}
-                    <View style={styles.infoSection}>
-                      <View style={styles.nameRow}>
-                        <Text style={styles.visitorName} numberOfLines={1}>{request.visitor_name}</Text>
-                        {/* Repeat visitor badge */}
-                        {request.visit_count > 1 && (
-                          <View style={styles.repeatBadge}>
-                            <Text style={styles.repeatBadgeText}>{request.visit_count}x</Text>
-                          </View>
-                        )}
-                      </View>
-                      <View style={styles.metaRow}>
-                        <Ionicons name="call-outline" size={11} color={Colors.textMuted} />
-                        <Text style={styles.visitorMeta}>{request.visitor_phone}</Text>
-                        {/* Quick dial */}
-                        <TouchableOpacity onPress={() => request.visitor_phone && Linking.openURL(`tel:${request.visitor_phone}`)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                          <Ionicons name="call" size={13} color={Colors.primary} />
-                        </TouchableOpacity>
-                      </View>
-                      <View style={styles.metaRow}>
-                        <Ionicons name="shield-outline" size={11} color={Colors.textMuted} />
-                        <Text style={styles.visitorMeta}>{request.guard_name || 'Guard'}</Text>
-                      </View>
-                      <View style={styles.purposeBox}>
-                        <Ionicons name="document-text-outline" size={12} color={Colors.textMuted} />
-                        <Text style={styles.purposeText} numberOfLines={2}>{request.purpose}</Text>
-                      </View>
+                  {request.visitor_photo ? (
+                    <Image source={{ uri: resolvePhotoUrl(request.visitor_photo) }} style={styles.avatar} />
+                  ) : (
+                    <View style={styles.avatarPlaceholder}>
+                      <Text style={styles.avatarLetter}>{request.visitor_name?.charAt(0)?.toUpperCase()}</Text>
                     </View>
+                  )}
+                  <View style={styles.requestInfo}>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.visitorName} numberOfLines={1}>{request.visitor_name}</Text>
+                      {request.visit_count > 1 && <View style={styles.repeatBadge}><Text style={styles.repeatText}>{request.visit_count}x</Text></View>}
+                    </View>
+                    <Text style={styles.requestMeta}>📱 {request.visitor_phone}</Text>
+                    <Text style={styles.requestMeta} numberOfLines={1}>🛡️ {request.guard_name || 'Guard'}</Text>
+                    <View style={styles.purposeTag}><Text style={styles.purposeText} numberOfLines={2}>{request.purpose}</Text></View>
                   </View>
-                  <View style={styles.statusSection}>
+                  <View style={styles.statusCol}>
                     <Badge text={request.status} variant={request.status === 'pending' ? 'warning' : request.status === 'approved' ? 'success' : 'danger'} size="sm" />
                     <Text style={styles.timeText}>{safeTime(request.created_at)}</Text>
-                    {/* Response time */}
                     {request.response_time_minutes != null && (
                       <View style={styles.responseTimePill}>
-                        <Ionicons name="timer-outline" size={10} color="#a78bfa" />
+                        <Ionicons name="timer-outline" size={9} color="#a78bfa" />
                         <Text style={styles.responseTimeText}>{formatResponseTime(request.response_time_minutes)}</Text>
                       </View>
                     )}
-                    {/* Meeting status mini-indicator for approved requests */}
                     {request.status === 'approved' && (
                       <View style={styles.meetingDot}>
-                        <Ionicons
-                          name={request.meeting_status === 'met' ? 'checkmark-circle' : request.meeting_status === 'not_met' ? 'close-circle' : 'help-circle-outline'}
-                          size={12}
-                          color={request.meeting_status === 'met' ? '#22c55e' : request.meeting_status === 'not_met' ? '#ef4444' : Colors.textMuted}
-                        />
-                        <Text style={[
-                          styles.meetingDotText,
-                          { color: request.meeting_status === 'met' ? '#22c55e' : request.meeting_status === 'not_met' ? '#ef4444' : Colors.textMuted }
-                        ]}>
+                        <Ionicons name={request.meeting_status === 'met' ? 'checkmark-circle' : request.meeting_status === 'not_met' ? 'close-circle' : 'help-circle-outline'} size={11} color={request.meeting_status === 'met' ? '#22c55e' : request.meeting_status === 'not_met' ? '#ef4444' : Colors.textMuted} />
+                        <Text style={[styles.meetingDotText, { color: request.meeting_status === 'met' ? '#22c55e' : request.meeting_status === 'not_met' ? '#ef4444' : Colors.textMuted }]}>
                           {request.meeting_status === 'met' ? 'Met' : request.meeting_status === 'not_met' ? 'Not Met' : 'Unconfirmed'}
-                        </Text>
-                      </View>
-                    )}
-                    {/* SMS status for approved */}
-                    {request.status === 'approved' && request.sms_sent != null && (
-                      <View style={styles.smsPill}>
-                        <Ionicons name={request.sms_sent ? 'chatbubble-ellipses' : 'chatbubble-outline'} size={10} color={request.sms_sent ? '#22c55e' : Colors.textMuted} />
-                        <Text style={[styles.smsText, { color: request.sms_sent ? '#22c55e' : Colors.textMuted }]}>
-                          {request.sms_sent ? 'SMS ✓' : 'No SMS'}
                         </Text>
                       </View>
                     )}
                   </View>
                 </View>
-
-                {/* Quick Actions for Pending */}
                 {request.status === 'pending' && (
-                  <View style={styles.quickActionRow}>
+                  <View style={styles.actionRow}>
                     <Button title="Approve" icon="checkmark" variant="success" size="sm" style={{ flex: 1 }} onPress={() => handleQuickApprove(request.id)} loading={actionLoading === request.id} />
                     <Button title="Reject" icon="close" variant="danger" size="sm" style={{ flex: 1, marginLeft: 10 }} onPress={() => handleQuickReject(request.id)} loading={actionLoading === request.id} />
                   </View>
                 )}
-              </Card>
+              </TouchableOpacity>
             ))
           ) : null}
 
           {/* Pre-Visit cards */}
           {activeTab === 'pre_visits' && preVisitData.length === 0 && (
-            <EmptyState icon="calendar-outline" title="No pre-visit requests" message="Pre-visit requests from visitors will appear here." compact />
+            <EmptyState icon="calendar-outline" title="No pre-visit requests" message="Pre-visit requests from visitors will appear here." />
           )}
-          {activeTab === 'pre_visits' && preVisitData.length > 0 && preVisitData.map((preReg, preIndex) => (
-            <Card key={`prereg-${preReg.id}-${preIndex}`} style={[styles.requestCard, styles.requestCardPending, { borderLeftColor: '#a78bfa' }]}>
+          {activeTab === 'pre_visits' && preVisitData.map((preReg, preIndex) => (
+            <View key={`prereg-${preReg.id}-${preIndex}`} style={[styles.requestCard, { borderLeftWidth: 3, borderLeftColor: '#a78bfa' }]}>
               <View style={styles.requestRow}>
-                <View style={styles.userSection}>
-                  {preReg.visitor_photo ? (
-                    <Image source={{ uri: resolvePhotoUrl(preReg.visitor_photo) }} style={styles.avatar} />
-                  ) : (
-                    <View style={styles.avatarPlaceholder}><Ionicons name="person" size={24} color={Colors.textMuted} /></View>
-                  )}
-                  <View style={styles.infoSection}>
-                    <Text style={styles.visitorName}>{preReg.visitor_name}</Text>
-                    <View style={styles.metaRow}>
-                      <Ionicons name="call-outline" size={11} color={Colors.textMuted} />
-                      <Text style={styles.visitorMeta}>{preReg.visitor_phone}</Text>
-                      <TouchableOpacity onPress={() => Linking.openURL(`tel:${preReg.visitor_phone}`)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                        <Ionicons name="call" size={13} color={Colors.primary} />
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.purposeBox}>
-                      <Ionicons name="document-text-outline" size={12} color={Colors.textMuted} />
-                      <Text style={styles.purposeText} numberOfLines={2}>{preReg.purpose}</Text>
-                    </View>
-                    <View style={[styles.metaRow, { marginTop: 6 }]}>
-                      <Ionicons name="calendar-outline" size={11} color="#a78bfa" />
-                      <Text style={[styles.visitorMeta, { color: '#a78bfa', fontWeight: '700' }]}>
-                        📅 {safeDateLabel(preReg.scheduled_date)}{preReg.scheduled_time ? ` at ${preReg.scheduled_time}` : ''}
-                      </Text>
-                    </View>
+                {preReg.visitor_photo ? (
+                  <Image source={{ uri: resolvePhotoUrl(preReg.visitor_photo) }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarLetter}>{preReg.visitor_name?.charAt(0)?.toUpperCase()}</Text>
                   </View>
+                )}
+                <View style={styles.requestInfo}>
+                  <Text style={styles.visitorName}>{preReg.visitor_name}</Text>
+                  <Text style={styles.requestMeta}>📱 {preReg.visitor_phone}</Text>
+                  <View style={styles.purposeTag}><Text style={styles.purposeText} numberOfLines={2}>{preReg.purpose}</Text></View>
+                  <Text style={[styles.requestMeta, { color: '#a78bfa', fontWeight: '700', marginTop: 4 }]}>📅 {safeDateLabel(preReg.scheduled_date)}{preReg.scheduled_time ? ` at ${preReg.scheduled_time}` : ''}</Text>
                 </View>
-                <View style={styles.statusSection}>
-                  <Badge text="Pre-Visit" variant="info" size="sm" />
-                </View>
+                <Badge text="Pre-Visit" variant="info" size="sm" />
               </View>
-              <View style={styles.quickActionRow}>
+              <View style={styles.actionRow}>
                 <Button title="Approve" icon="checkmark" variant="success" size="sm" style={{ flex: 1 }} onPress={() => handlePreVisitApprove(preReg.id)} loading={actionLoading === preReg.id} />
                 <Button title="Reject" icon="close" variant="danger" size="sm" style={{ flex: 1, marginLeft: 10 }} onPress={() => handlePreVisitReject(preReg.id)} loading={actionLoading === preReg.id} />
               </View>
-            </Card>
+            </View>
           ))}
         </View>
 
-        <TouchableOpacity style={styles.historyBtn} onPress={() => navigation.navigate('ApprovalHistory')}>
-          <Text style={styles.historyBtnText}>View Full History</Text>
-          <Ionicons name="arrow-forward" size={16} color={Colors.primary} />
-        </TouchableOpacity>
+        {/* Utility Links */}
+        <View style={styles.utilityLinks}>
+          <TouchableOpacity style={styles.utilLink} onPress={() => navigation.navigate('ApprovalHistory')}>
+            <Ionicons name="time-outline" size={16} color={Colors.primary} />
+            <Text style={styles.utilLinkText}>Full History</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.utilLink} onPress={() => setShowSOSModal(true)}>
+            <Ionicons name="alert-circle" size={16} color="#ef4444" />
+            <Text style={[styles.utilLinkText, { color: '#ef4444' }]}>SOS Alert</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.utilLink} onPress={() => navigation.navigate('EmergencyContacts')}>
+            <Ionicons name="call" size={16} color="#f97316" />
+            <Text style={[styles.utilLinkText, { color: '#f97316' }]}>Emergency</Text>
+          </TouchableOpacity>
+        </View>
 
-        {/* Last Refresh Indicator */}
         {lastRefresh && (
-          <Text style={styles.lastRefresh}>
-            Last updated: {lastRefresh.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} • Auto-refreshes every 15s
-          </Text>
+          <Text style={styles.lastRefresh}>Last updated: {lastRefresh.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} • Auto-refreshes every 15s</Text>
         )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Reject Reason Modal */}
+      {/* ══════════ REJECT MODAL ══════════ */}
       <Modal visible={rejectModalVisible} transparent animationType="fade" onRequestClose={() => setRejectModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Reject Request</Text>
-            <Text style={styles.modalSubtitle}>Provide a reason for rejection (optional)</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="e.g. Not expecting any visitors today"
-              placeholderTextColor={Colors.textMuted}
-              value={rejectReason}
-              onChangeText={setRejectReason}
-              multiline
-              numberOfLines={3}
-              textAlignVertical="top"
-            />
+            <Text style={styles.modalSub}>Provide a reason for rejection (optional)</Text>
+            <TextInput style={styles.modalInput} placeholder="e.g. Not expecting visitors today" placeholderTextColor={Colors.textMuted} value={rejectReason} onChangeText={setRejectReason} multiline textAlignVertical="top" />
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setRejectModalVisible(false)}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.modalRejectBtn} onPress={confirmReject}>
-                <Ionicons name="close" size={16} color="#fff" />
+                <Ionicons name="close" size={14} color="#fff" />
                 <Text style={styles.modalRejectText}>Reject</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ══════════ SOS MODAL ══════════ */}
+      <Modal visible={showSOSModal} transparent animationType="fade" onRequestClose={() => setShowSOSModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, { borderColor: '#ef444440', borderWidth: 2 }]}>
+            <View style={styles.sosIconWrap}><Ionicons name="alert-circle" size={48} color="#ef4444" /></View>
+            <Text style={[styles.modalTitle, { color: '#ef4444', textAlign: 'center' }]}>🚨 SOS EMERGENCY</Text>
+            <Text style={[styles.modalSub, { textAlign: 'center' }]}>This will alert ALL admins and guards immediately</Text>
+            <TextInput style={styles.modalInput} placeholder="Describe the emergency (optional)..." placeholderTextColor={Colors.textMuted} value={sosMessage} onChangeText={setSosMessage} multiline textAlignVertical="top" />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowSOSModal(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalRejectBtn, { backgroundColor: '#ef4444' }]} onPress={handleSOS} disabled={sosSending}>
+                <Ionicons name="alert-circle" size={14} color="#fff" />
+                <Text style={styles.modalRejectText}>{sosSending ? 'Sending...' : 'SEND SOS'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -627,60 +560,116 @@ export default function StaffDashboard({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   content: { padding: Spacing.base, paddingBottom: 60 },
-  statsContainer: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
-  sectionTitle: { color: Colors.textSecondary, fontSize: FontSizes.sm, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: Spacing.md, paddingHorizontal: 4 },
+
+  // Header
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: Spacing.lg, paddingTop: 50, paddingBottom: Spacing.sm },
+  greeting: { color: Colors.textSecondary, fontSize: FontSizes.sm, fontWeight: '600' },
+  userName: { color: Colors.text, fontSize: FontSizes.xxl, fontWeight: '900', marginTop: 2 },
+  deptRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  availIndicator: { width: 8, height: 8, borderRadius: 4 },
+  deptText: { color: Colors.textMuted, fontSize: 11, fontWeight: '600' },
+  headerRight: { alignItems: 'flex-end' },
+  headerTime: { color: Colors.textSecondary, fontSize: FontSizes.sm, fontWeight: '600' },
+  headerDate: { color: Colors.textMuted, fontSize: 10, marginTop: 2 },
+  notifBtn: { marginTop: 8, padding: 8, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.border, position: 'relative' },
+  notifBadge: { position: 'absolute', top: 2, right: 2, backgroundColor: '#ef4444', borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center' },
+  notifBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
+
+  // Lockdown
+  lockdownBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FF333318', paddingHorizontal: Spacing.lg, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: '#FF333340' },
+  lockdownTitle: { color: '#FF3333', fontSize: 13, fontWeight: '900' },
+  lockdownReason: { color: '#FF6666', fontSize: 11, marginTop: 2 },
+
+  // Stats
+  statsRow: { flexDirection: 'row', gap: 8, marginBottom: Spacing.md },
+  statCard: { flex: 1, backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.sm, paddingVertical: Spacing.md, alignItems: 'center', borderWidth: 1, borderColor: Colors.border, borderLeftWidth: 3, position: 'relative' },
+  statValue: { color: Colors.text, fontSize: FontSizes.xxl, fontWeight: '900', marginTop: 4 },
+  statLabel: { color: Colors.textMuted, fontSize: 9, fontWeight: '600', textAlign: 'center', marginTop: 2 },
+  statAlert: { position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: Colors.warning, justifyContent: 'center', alignItems: 'center' },
+  statAlertText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+
+  // Section label
+  sectionLabel: { color: Colors.textMuted, fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: Spacing.sm, marginTop: Spacing.sm, paddingHorizontal: 4 },
+
+  // Quick actions
+  quickActions: { flexDirection: 'row', gap: 10, marginBottom: Spacing.md },
+  qaBtn: { flex: 1, alignItems: 'center', backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, paddingVertical: Spacing.md, borderWidth: 1, borderColor: Colors.border },
+  qaIcon: { width: 44, height: 44, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 6 },
+  qaLabel: { color: Colors.text, fontSize: 10, fontWeight: '700', textAlign: 'center', lineHeight: 14 },
+
+  // Availability
+  availRow: { flexDirection: 'row', gap: 6, marginBottom: Spacing.md },
+  availChip: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: BorderRadius.md, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surface },
+  availText: { color: Colors.textMuted, fontSize: 10, fontWeight: '700' },
+
+  // Summary card
+  summaryCard: { backgroundColor: Colors.surface, borderRadius: BorderRadius.xl, padding: Spacing.lg, marginBottom: Spacing.lg, borderWidth: 1, borderColor: Colors.border },
+  summaryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: Spacing.md },
+  summaryTitle: { color: Colors.text, fontSize: FontSizes.md, fontWeight: '800' },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
+  summaryItem: { alignItems: 'center', flex: 1 },
+  summaryValue: { fontSize: FontSizes.lg, fontWeight: '900' },
+  summaryItemLabel: { color: Colors.textMuted, fontSize: 9, fontWeight: '700', textTransform: 'uppercase', marginTop: 2 },
+  summaryDivider: { width: 1, height: 30, backgroundColor: Colors.border },
+
+  // Active visitors section
+  section: { backgroundColor: Colors.surface, borderRadius: BorderRadius.xl, padding: Spacing.base, marginBottom: Spacing.lg, borderWidth: 1, borderColor: Colors.border },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: Spacing.sm },
+  sectionTitle: { color: Colors.text, fontSize: FontSizes.md, fontWeight: '800', flex: 1 },
+  livePulse: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#22c55e15', paddingHorizontal: 8, paddingVertical: 3, borderRadius: BorderRadius.full },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' },
+  liveText: { fontSize: 9, color: '#22c55e', fontWeight: '900', letterSpacing: 1 },
+  activeStatusPills: { flexDirection: 'row', gap: 6, marginBottom: Spacing.sm },
+  activePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: BorderRadius.full, borderWidth: 1 },
+  activePillText: { fontSize: 10, fontWeight: '700' },
+  activeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.border + '50' },
+  activeAvatar: { width: 36, height: 36, borderRadius: 18 },
+  activeAvatarPlaceholder: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.primary + '15', justifyContent: 'center', alignItems: 'center' },
+  activeAvatarLetter: { color: Colors.primary, fontSize: 15, fontWeight: '800' },
+  activeName: { color: Colors.text, fontSize: FontSizes.sm, fontWeight: '700' },
+  activeMeta: { color: Colors.textMuted, fontSize: 10, marginTop: 1 },
+  activeStatusDot: { width: 10, height: 10, borderRadius: 5 },
+
+  // Tabs
   tabRow: { flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: 4, marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.border },
   tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: BorderRadius.md, gap: 4 },
-  activeTab: { backgroundColor: Colors.background, elevation: 2 },
-  tabText: { color: Colors.textMuted, fontSize: 11, fontWeight: '700' },
+  activeTab: { backgroundColor: Colors.background, ...Shadows.sm },
+  tabText: { color: Colors.textMuted, fontSize: 10, fontWeight: '700' },
   activeTabText: { color: Colors.primary },
   listSection: { minHeight: 200 },
-  requestCard: { padding: Spacing.md, marginBottom: 12, elevation: 4, borderWidth: 1, borderColor: Colors.border },
+
+  // Request cards
+  requestCard: { backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.md, marginBottom: 10, borderWidth: 1, borderColor: Colors.border },
   requestCardPending: { borderLeftWidth: 3, borderLeftColor: Colors.warning },
-  requestRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  userSection: { flexDirection: 'row', alignItems: 'flex-start', flex: 1 },
-  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: Colors.surfaceLight },
-  avatarPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: Colors.surfaceLight, justifyContent: 'center', alignItems: 'center' },
-  infoSection: { marginLeft: Spacing.md, flex: 1 },
+  requestRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.surfaceLight },
+  avatarPlaceholder: { width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.primary + '15', justifyContent: 'center', alignItems: 'center' },
+  avatarLetter: { color: Colors.primary, fontSize: 20, fontWeight: '800' },
+  requestInfo: { marginLeft: 12, flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   visitorName: { color: Colors.text, fontSize: FontSizes.base, fontWeight: '800', flex: 1 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  visitorMeta: { color: Colors.textMuted, fontSize: 11, flex: 1 },
-  purposeBox: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6, backgroundColor: Colors.surfaceLight, padding: 6, borderRadius: 4 },
-  purposeText: { color: Colors.textSecondary, fontSize: 12, flex: 1 },
-  statusSection: { alignItems: 'flex-end', marginLeft: Spacing.sm },
+  repeatBadge: { backgroundColor: '#a78bfa20', borderWidth: 1, borderColor: '#a78bfa40', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 },
+  repeatText: { fontSize: 9, color: '#a78bfa', fontWeight: '800' },
+  requestMeta: { color: Colors.textMuted, fontSize: 11, marginTop: 2 },
+  purposeTag: { marginTop: 6, backgroundColor: Colors.surfaceLight, padding: 6, borderRadius: 4 },
+  purposeText: { color: Colors.textSecondary, fontSize: 11 },
+  statusCol: { alignItems: 'flex-end', marginLeft: 8 },
   timeText: { color: Colors.textMuted, fontSize: 10, marginTop: 4, fontWeight: '600' },
-  quickActionRow: { flexDirection: 'row', marginTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: Spacing.md },
-  historyBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: Spacing.lg, padding: Spacing.md, backgroundColor: Colors.surface, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border, gap: 8 },
-  historyBtnText: { color: Colors.primary, fontSize: FontSizes.sm, fontWeight: '700' },
-
-  // Daily Summary Card
-  dailySummary: { backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.md, marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.border },
-  dailySummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: Spacing.sm },
-  dailySummaryTitle: { color: Colors.text, fontSize: FontSizes.sm, fontWeight: '800' },
-  dailySummaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
-  dailySummaryItem: { alignItems: 'center', flex: 1 },
-  dailySummaryValue: { color: Colors.text, fontSize: FontSizes.lg, fontWeight: '900' },
-  dailySummaryLabel: { color: Colors.textMuted, fontSize: 9, fontWeight: '700', textTransform: 'uppercase', marginTop: 2 },
-  dailySummaryDivider: { width: 1, height: 30, backgroundColor: Colors.border },
-
-  // Repeat visitor badge
-  repeatBadge: { backgroundColor: '#a78bfa20', borderWidth: 1, borderColor: '#a78bfa50', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 },
-  repeatBadgeText: { fontSize: 9, color: '#a78bfa', fontWeight: '800' },
-
-  // Response time pill
-  responseTimePill: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5, paddingHorizontal: 5, paddingVertical: 2, backgroundColor: '#a78bfa12', borderRadius: 4 },
+  responseTimePill: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4, paddingHorizontal: 5, paddingVertical: 2, backgroundColor: '#a78bfa12', borderRadius: 4 },
   responseTimeText: { fontSize: 9, color: '#a78bfa', fontWeight: '700' },
+  meetingDot: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 },
+  meetingDotText: { fontSize: 9, fontWeight: '700' },
+  actionRow: { flexDirection: 'row', marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.border },
 
-  // SMS pill
-  smsPill: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3 },
-  smsText: { fontSize: 9, fontWeight: '700' },
+  // Utility links
+  utilityLinks: { flexDirection: 'row', gap: 8, marginTop: Spacing.md },
+  utilLink: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 12, backgroundColor: Colors.surface, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border },
+  utilLinkText: { color: Colors.primary, fontSize: 11, fontWeight: '700' },
 
-  // Last refresh
-  lastRefresh: { color: Colors.textMuted, fontSize: 10, textAlign: 'center', marginTop: Spacing.sm, fontStyle: 'italic' },
+  lastRefresh: { color: Colors.textMuted, fontSize: 10, textAlign: 'center', marginTop: Spacing.md, fontStyle: 'italic' },
 
   // Popup Banner
-  popupBanner: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.warning, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, paddingTop: 48, elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
+  popupBanner: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000, flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.warning, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, paddingTop: 48, elevation: 20 },
   popupGlow: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
   popupContent: { flex: 1, marginLeft: 12 },
   popupTitle: { color: '#fff', fontSize: 14, fontWeight: '800' },
@@ -688,56 +677,16 @@ const styles = StyleSheet.create({
   popupAction: { backgroundColor: 'rgba(255,255,255,0.25)', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 6 },
   popupActionText: { color: '#fff', fontSize: 12, fontWeight: '800' },
 
-  meetingDot: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5 },
-  meetingDotText: { fontSize: 9, fontWeight: '700' },
-
-  // Reject Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  modalContainer: { backgroundColor: Colors.surface, borderRadius: BorderRadius.xl, padding: Spacing.xl, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: Colors.border, elevation: 10 },
+  // Modals
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalContainer: { backgroundColor: Colors.surface, borderRadius: BorderRadius.xxl, padding: Spacing.xl, width: '100%', maxWidth: 380, borderWidth: 1, borderColor: Colors.border },
   modalTitle: { color: Colors.text, fontSize: FontSizes.lg, fontWeight: '800', marginBottom: 4 },
-  modalSubtitle: { color: Colors.textMuted, fontSize: FontSizes.sm, marginBottom: Spacing.lg },
-  modalInput: { backgroundColor: Colors.background, color: Colors.text, borderRadius: BorderRadius.md, padding: Spacing.md, fontSize: FontSizes.base, borderWidth: 1, borderColor: Colors.border, minHeight: 80 },
+  modalSub: { color: Colors.textMuted, fontSize: FontSizes.sm, marginBottom: Spacing.lg },
+  modalInput: { backgroundColor: Colors.background, color: Colors.text, borderRadius: BorderRadius.md, padding: Spacing.md, fontSize: FontSizes.base, borderWidth: 1, borderColor: Colors.border, minHeight: 70 },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: Spacing.lg, gap: 12 },
   modalCancelBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border },
   modalCancelText: { color: Colors.textSecondary, fontWeight: '700', fontSize: FontSizes.sm },
   modalRejectBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingVertical: 10, borderRadius: BorderRadius.md, backgroundColor: Colors.danger },
   modalRejectText: { color: '#fff', fontWeight: '700', fontSize: FontSizes.sm },
-
-  // Availability
-  availRow: { flexDirection: 'row', paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm, gap: 6 },
-  availChip: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: BorderRadius.md, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surface },
-  availText: { color: Colors.textMuted, fontSize: 10, fontWeight: '700' },
-  // Lockdown
-  lockdownBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FF333318', paddingHorizontal: Spacing.lg, paddingVertical: 14, borderBottomWidth: 2, borderBottomColor: '#FF333340' },
-  lockdownTitle: { color: '#FF3333', fontSize: 14, fontWeight: '900' },
-  lockdownReason: { color: '#FF6666', fontSize: 11, marginTop: 2 },
-
-  // Share Pre-Reg
-  sharePreRegBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: Spacing.base, marginTop: Spacing.sm, paddingVertical: 12, backgroundColor: '#a78bfa12', borderWidth: 1, borderColor: '#a78bfa30', borderRadius: BorderRadius.md },
-  sharePreRegText: { color: '#a78bfa', fontSize: FontSizes.sm, fontWeight: '700' },
-
-  // Quick Actions Row
-  quickActionsRow: { flexDirection: 'row', paddingHorizontal: Spacing.base, paddingTop: Spacing.md, gap: 10 },
-  quickActionBtn: { flex: 1, backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
-  quickActionIcon: { width: 42, height: 42, borderRadius: 21, justifyContent: 'center', alignItems: 'center', marginBottom: 6 },
-  quickActionLabel: { color: Colors.text, fontSize: FontSizes.md, fontWeight: '800' },
-  quickActionSub: { color: Colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 2 },
-
-  // Active Visitors Section
-  activeVisitorsSection: { backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.border, padding: Spacing.base },
-  activeVisitorsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: Spacing.sm },
-  activeVisitorsTitle: { color: Colors.text, fontSize: FontSizes.md, fontWeight: '800' },
-  activeVisitorsBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  activeDot: { width: 8, height: 8, borderRadius: 4 },
-  activeMiniPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: BorderRadius.full, borderWidth: 1 },
-  activeMiniText: { fontSize: 10, fontWeight: '700' },
-  activeVisitorRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.border + '50' },
-  activeAvatar: { width: 38, height: 38, borderRadius: 19 },
-  activeAvatarPlaceholder: { width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.primary + '20', justifyContent: 'center', alignItems: 'center' },
-  activeAvatarInitial: { color: Colors.primary, fontSize: 16, fontWeight: '800' },
-  activeVisitorName: { color: Colors.text, fontSize: 13, fontWeight: '700' },
-  activeVisitorMeta: { color: Colors.textMuted, fontSize: 11, marginTop: 1 },
-  activeStatusBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: BorderRadius.full, backgroundColor: Colors.background },
-  activeStatusDot: { width: 6, height: 6, borderRadius: 3 },
-  activeStatusText: { fontSize: 10, color: Colors.textSecondary, fontWeight: '700' },
+  sosIconWrap: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#ef444415', justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginBottom: 12 },
 });

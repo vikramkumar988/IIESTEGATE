@@ -282,3 +282,25 @@ CREATE INDEX IF NOT EXISTS idx_journeys_entry ON visitor_journeys(campus_entry D
 CREATE INDEX IF NOT EXISTS idx_journey_stops_journey ON journey_stops(journey_id);
 CREATE INDEX IF NOT EXISTS idx_journey_stops_staff ON journey_stops(staff_id);
 
+-- =================== v8: INCIDENT REPORTING ===================
+CREATE TABLE IF NOT EXISTS incidents (
+    id               SERIAL PRIMARY KEY,
+    reported_by      INTEGER NOT NULL REFERENCES users(id),
+    category         VARCHAR(50) NOT NULL DEFAULT 'other',
+    title            VARCHAR(200),
+    description      TEXT,
+    photo_url        VARCHAR(512),
+    location         VARCHAR(200),
+    severity         VARCHAR(20) DEFAULT 'medium',
+    is_resolved      BOOLEAN DEFAULT FALSE,
+    resolved_by      INTEGER REFERENCES users(id),
+    resolved_at      TIMESTAMP,
+    resolved_notes   TEXT,
+    created_at       TIMESTAMP DEFAULT NOW(),
+    updated_at       TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_incidents_category ON incidents(category);
+CREATE INDEX IF NOT EXISTS idx_incidents_date ON incidents(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_incidents_resolved ON incidents(is_resolved) WHERE is_resolved = false;
+

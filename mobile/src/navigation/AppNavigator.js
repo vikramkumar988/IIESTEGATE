@@ -16,6 +16,7 @@ import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
 import GuardDashboard from '../screens/guard/GuardDashboard';
 import CreateVisitRequest from '../screens/guard/CreateVisitRequest';
 import CreateGeneralVisit from '../screens/guard/CreateGeneralVisit';
+import IncidentReportScreen from '../screens/guard/IncidentReportScreen';
 import ScanQR from '../screens/guard/ScanQR';
 import GenerateQR from '../screens/guard/GenerateQR';
 import EditVisitRequest from '../screens/guard/EditVisitRequest';
@@ -32,11 +33,14 @@ import PendingUsers from '../screens/admin/PendingUsers';
 import ActivityLogScreen from '../screens/admin/ActivityLogScreen';
 import VisitDetail from '../screens/admin/VisitDetail';
 import UserDetailScreen from '../screens/admin/UserDetailScreen';
+import BlacklistScreen from '../screens/admin/BlacklistScreen';
+import IncidentListScreen from '../screens/admin/IncidentListScreen';
 
 // Common (shared)
 import VisitHistory from '../screens/common/VisitHistory';
 import NotificationsScreen from '../screens/common/NotificationsScreen';
 import ProfileScreen from '../screens/common/ProfileScreen';
+import EmergencyContactsScreen from '../screens/common/EmergencyContactsScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -149,6 +153,10 @@ export default function AppNavigator() {
             <Stack.Screen name="UserDetail" component={UserDetailScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="IncidentReport" component={IncidentReportScreen} />
+            <Stack.Screen name="BlacklistManagement" component={BlacklistScreen} />
+            <Stack.Screen name="IncidentList" component={IncidentListScreen} />
+            <Stack.Screen name="EmergencyContacts" component={EmergencyContactsScreen} />
           </>
         )}
       </Stack.Navigator>

@@ -584,3 +584,124 @@ exports.getStaffPerformance = async (req, res, next) => {
     next(error);
   }
 };
+
+// ============== SOS / PANIC ALERT ==============
+exports.sendSOS = async (req, res, next) => {
+  try {
+    const { message, location } = req.body;
+    const sosMessage = message || 'Emergency SOS triggered!';
+
+    // Notify ALL admins and guards
+    const users = await pool.query(
+      `SELECT id, push_token FROM users WHERE role IN ('admin', 'guard') AND is_active = true AND push_token IS NOT NULL`
+    );
+
+    let notified = 0;
+    for (const user of users.rows) {
+      if (user.id === req.user.id) continue; // Don't notify self
+      try {
+        await sendPushNotification(
+          user.push_token,
+          '🚨🚨 SOS EMERGENCY ALERT 🚨🚨',
+          `${req.user.full_name} (${req.user.role}): ${sosMessage}${location ? ` | Location: ${location}` : ''}`
+        );
+        notified++;
+      } catch (e) { /* continue */ }
+      await pool.query(
+        `INSERT INTO notifications (user_id, title, body, type) VALUES ($1, $2, $3, $4)`,
+        [user.id, '🚨 SOS EMERGENCY', `From ${req.user.full_name}: ${sosMessage}`, 'sos']
+      );
+    }
+
+    await logActivity(req.user.id, 'trigger_sos', 'emergency', null, { message: sosMessage, location, notified });
+
+    res.json({ success: true, message: `SOS sent to ${notified} personnel`, data: { notified } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============== BROADCAST ALERT (Admin → All Guards) ==============
+exports.broadcastAlert = async (req, res, next) => {
+  try {
+    const { title, message, priority } = req.body;
+    if (!message) return res.status(400).json({ success: false, message: 'Message is required' });
+
+    const alertTitle = title || '📢 Admin Alert';
+    const guards = await pool.query(
+      `SELECT id, push_token FROM users WHERE role = 'guard' AND is_active = true AND push_token IS NOT NULL`
+    );
+
+    let notified = 0;
+    for (const guard of guards.rows) {
+      try {
+        await sendPushNotification(guard.push_token, alertTitle, message);
+        notified++;
+      } catch (e) { /* continue */ }
+      await pool.query(
+        `INSERT INTO notifications (user_id, title, body, type) VALUES ($1, $2, $3, $4)`,
+        [guard.id, alertTitle, message, 'broadcast']
+      );
+    }
+
+    await logActivity(req.user.id, 'broadcast_alert', 'notification', null, { title: alertTitle, message, priority, notified });
+
+    res.json({ success: true, message: `Alert sent to ${notified} guards`, data: { notified } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============== EXPECTED ARRIVALS TODAY ==============
+exports.getExpectedArrivals = async (req, res, next) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Pre-registrations approved for today that haven't entered
+    const preRegs = await pool.query(
+      `SELECT pr.id, v.full_name as visitor_name, v.phone as visitor_phone, v.photo_url as visitor_photo,
+              s.full_name as staff_name, s.department, pr.purpose, pr.scheduled_date, pr.scheduled_time,
+              pr.status, gp.status as pass_status, gp.entry_time,
+              'pre_registration' as source
+       FROM pre_registrations pr
+       JOIN visitors v ON pr.visitor_id = v.id
+       JOIN users s ON pr.staff_id = s.id
+       LEFT JOIN gate_passes gp ON pr.gate_pass_id = gp.id
+       WHERE pr.scheduled_date = CURRENT_DATE
+         AND pr.status IN ('pending', 'approved')
+         AND (gp.entry_time IS NULL OR gp.id IS NULL)
+       ORDER BY pr.scheduled_time ASC NULLS LAST`
+    );
+
+    // Approved visit requests for today that haven't entered
+    const visits = await pool.query(
+      `SELECT vr.id, v.full_name as visitor_name, v.phone as visitor_phone, v.photo_url as visitor_photo,
+              s.full_name as staff_name, s.department, vr.purpose,
+              vr.status, gp.status as pass_status, gp.entry_time,
+              'visit_request' as source
+       FROM visit_requests vr
+       JOIN visitors v ON vr.visitor_id = v.id
+       JOIN users s ON vr.staff_id = s.id
+       LEFT JOIN gate_passes gp ON gp.visit_request_id = vr.id
+       WHERE DATE(vr.created_at) = CURRENT_DATE
+         AND vr.status = 'approved'
+         AND (gp.entry_time IS NULL OR gp.id IS NULL)
+       ORDER BY vr.created_at ASC`
+    );
+
+    const arrivals = [...preRegs.rows, ...visits.rows];
+
+    res.json({
+      success: true,
+      data: {
+        expected_arrivals: arrivals,
+        count: arrivals.length,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

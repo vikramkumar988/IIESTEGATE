@@ -174,6 +174,10 @@ export const dashboardService = {
   getDateRangeReport: (params) => api.get('/dashboard/date-range-report', { params }),
   getScanLogs: (params) => api.get('/dashboard/scan-logs', { params }),
   getStaffPerformance: (params) => api.get('/dashboard/staff-performance', { params }),
+  // Emergency & alerts
+  sendSOS: (data) => api.post('/dashboard/sos', data),
+  broadcastAlert: (data) => api.post('/dashboard/broadcast', data),
+  getExpectedArrivals: () => api.get('/dashboard/expected-arrivals'),
 };
 
 // ============== JOURNEYS ==============
@@ -190,6 +194,14 @@ export const preRegService = {
   getAll: (params) => api.get('/pre-register/all', { params }),
   approve: (id, data) => api.put(`/pre-register/${id}/approve`, data),
   reject: (id, data) => api.put(`/pre-register/${id}/reject`, data),
+};
+
+// ============== INCIDENTS ==============
+export const incidentService = {
+  create: (data) => api.post('/incidents', data),
+  getAll: (params) => api.get('/incidents', { params }),
+  getById: (id) => api.get(`/incidents/${id}`),
+  resolve: (id, data) => api.put(`/incidents/${id}/resolve`, data),
 };
 
 // Helper to get the pre-registration URL for sharing
